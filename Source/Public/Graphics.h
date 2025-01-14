@@ -5,11 +5,24 @@
 #include <crtdbg.h>
 #endif
 
+#include <vector>
+#include <memory>
+
+class GameObject;
+class Camera;
+
 class IGraphics
 {
 public:
-	virtual bool Init() = 0;
+	virtual ~IGraphics();
+
+public:
+	virtual bool Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, std::vector<GameObject*> InDynamicGameObjects) = 0;
 	virtual void Update() = 0;
 	virtual void Draw() = 0;
 	virtual void OnResize() = 0;
+
+protected:
+	std::vector<GameObject*> StaticGameObjects;
+	std::vector<GameObject*> DynamicGameObjects;
 };

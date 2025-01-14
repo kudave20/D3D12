@@ -1,7 +1,9 @@
 #include "Engine.h"
 #include "Framework/GameTimer.h"
+#include "Framework/Camera.h"
 #include "Window.h"
 #include "DX12.h"
+#include "Landscape.h"
 #include <cassert>
 #include <windowsx.h>
 
@@ -125,7 +127,7 @@ LRESULT Engine::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		else if ((int)wParam == VK_F2)
 		{
-			// Graphics->Toggle4xMsaaState();
+			//Graphics->Toggle4xMsaaState();
 		}
 
 		return 0;
@@ -137,11 +139,14 @@ LRESULT Engine::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 bool Engine::Init()
 {
 	InitTimer();
+	InitCamera();
 
 	if (false == InitWindow())
 	{
 		return false;
 	}
+
+	InitGameObjects();
 
 	if (false == InitGraphics())
 	{
@@ -157,7 +162,7 @@ bool Engine::InitWindow()
 {
 	WindowMgr = std::make_unique<WindowManager>();
 
-	if (false == WindowMgr->Init())
+	if (false == WindowMgr->Init(MainCamera.get()))
 	{
 		return false;
 	}
@@ -165,11 +170,35 @@ bool Engine::InitWindow()
 	return true;
 }
 
+void Engine::InitGameObjects()
+{
+	std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>();
+	StaticGameObjects.push_back(std::move(LandScapeGO));
+}
+
 bool Engine::InitGraphics()
 {
 	Graphics = std::make_unique<DX12>();
 
-	if (false == Graphics->Init())
+	std::vector<GameObject*> StaticGameObjectPtrs;
+	for (auto&& GameObject : StaticGameObjects)
+	{
+		if (GameObject)
+		{
+			StaticGameObjectPtrs.push_back(GameObject.get());
+		}
+	}
+
+	std::vector<GameObject*> DynamicGameObjectPtrs;
+	for (auto&& GameObject : DynamicGameObjects)
+	{
+		if (GameObject)
+		{
+			DynamicGameObjectPtrs.push_back(GameObject.get());
+		}
+	}
+
+	if (false == Graphics->Init(MainCamera.get(), StaticGameObjectPtrs, DynamicGameObjectPtrs))
 	{
 		return false;
 	}
@@ -182,6 +211,11 @@ void Engine::InitTimer()
 	Timer = std::make_unique<GameTimer>();
 
 	Timer->Init();
+}
+
+void Engine::InitCamera()
+{
+	MainCamera = std::make_unique<Camera>();
 }
 
 int Engine::Tick()

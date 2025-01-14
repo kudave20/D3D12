@@ -2,10 +2,13 @@
 
 #include <Windows.h>
 #include <memory>
+#include <vector>
 
 class WindowManager;
 class GameTimer;
 class DX12;
+class GameObject;
+class Camera;
 
 class Engine
 {
@@ -27,17 +30,24 @@ public:
 
 private:
 	bool InitWindow();
+	void InitGameObjects();
 	bool InitGraphics();
 	void InitTimer();
+	void InitCamera();
 
 private:
 	static Engine* GEngine;
 
 	std::unique_ptr<WindowManager> WindowMgr;
 
+	std::vector<std::unique_ptr<GameObject>> StaticGameObjects;
+	std::vector<std::unique_ptr<GameObject>> DynamicGameObjects;
+
 	std::unique_ptr<DX12> Graphics;
 
 	std::unique_ptr<GameTimer> Timer;
+
+	std::unique_ptr<Camera> MainCamera;
 
 	bool bEnginePaused = false;
 

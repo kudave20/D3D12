@@ -155,23 +155,28 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <FxCompile Include="Source\Shader\Box.hlsl" />
+    <FxCompile Include="Source\Shader\Landscape.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Private\DX12.cpp" />
+    <ClCompile Include="Source\Private\FrameResource.cpp" />
     <ClCompile Include="Source\Private\Framework\Camera.cpp" />
     <ClCompile Include="Source\Private\Framework\d3dUtil.cpp" />
     <ClCompile Include="Source\Private\Framework\DDSTextureLoader.cpp" />
     <ClCompile Include="Source\Private\Framework\GameTimer.cpp" />
     <ClCompile Include="Source\Private\Framework\GeometryGenerator.cpp" />
     <ClCompile Include="Source\Private\Framework\MathHelper.cpp" />
+    <ClCompile Include="Source\Private\GameObject.cpp" />
+    <ClCompile Include="Source\Private\Landscape.cpp" />
     <ClCompile Include="Source\Private\Launch.cpp" />
     <ClCompile Include="Source\Private\Engine.cpp" />
     <ClCompile Include="Source\Private\Window.cpp" />
+    <ClCompile Include="Source\Public\Graphics.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Public\DX12.h" />
     <ClInclude Include="Source\Public\Engine.h" />
+    <ClInclude Include="Source\Public\FrameResource.h" />
     <ClInclude Include="Source\Public\Framework\Camera.h" />
     <ClInclude Include="Source\Public\Framework\d3dUtil.h" />
     <ClInclude Include="Source\Public\Framework\d3dx12.h" />
@@ -180,7 +185,9 @@
     <ClInclude Include="Source\Public\Framework\GeometryGenerator.h" />
     <ClInclude Include="Source\Public\Framework\MathHelper.h" />
     <ClInclude Include="Source\Public\Framework\UploadBuffer.h" />
+    <ClInclude Include="Source\Public\GameObject.h" />
     <ClInclude Include="Source\Public\Graphics.h" />
+    <ClInclude Include="Source\Public\Landscape.h" />
     <ClInclude Include="Source\Public\Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

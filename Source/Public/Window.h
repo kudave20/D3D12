@@ -5,6 +5,7 @@
 #include <memory>
 
 class DX12;
+class Camera;
 
 class Window
 {
@@ -17,7 +18,7 @@ public:
 	void OnPointerUp(WPARAM State, int X, int Y);
 
 public:
-	bool Init(int Width, int Height);
+	bool Init(int Width, int Height, Camera* InCamera);
 
 public:
 	void SetMinimized(bool InMinimized);
@@ -50,6 +51,8 @@ private:
 
 	DX12* Graphics = nullptr;
 
+	Camera* MainCamera = nullptr;
+
 	const wchar_t* WndName = L"그래픽스 엔진";
 
 	bool bMinimized = false;
@@ -74,7 +77,7 @@ public:
 	static WindowManager* Get();
 
 public:
-	bool Init();
+	bool Init(Camera* InCamera);
 	void OnResize();
 
 public:

@@ -1,13 +1,23 @@
 #include "DX12.h"
 #include <WindowsX.h>
 #include "Window.h"
+#include "GameObject.h"
+#include "FrameResource.h"
+#include "Framework/GameTimer.h"
+#include "Framework/Camera.h"
 
-using Microsoft::WRL::ComPtr;
-using namespace std;
-using namespace DirectX;
-
-bool DX12::Init()
+DX12::~DX12()
 {
+	if (D3DDevice)
+	{
+		FlushCommandQueue();
+	}
+}
+
+bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, std::vector<GameObject*> InDynamicGameObjects)
+{
+	MainCamera = InCamera;
+
 #if defined(DEBUG) || defined(_DEBUG)
 	ComPtr<ID3D12Debug> DebugController;
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&DebugController)));
@@ -64,12 +74,42 @@ bool DX12::Init()
 
 	ThrowIfFailed(CommandList->Reset(CommandAllocator.Get(), nullptr));
 
-	BuildDescriptorHeaps();
-	BuildConstantBuffers();
-	BuildRootSignature();
-	BuildShadersAndInputLayout();
-	BuildBoxGeometry();
-	BuildPSO();
+	for (GameObject* GameObject : InStaticGameObjects)
+	{
+		StaticGameObjects.push_back(GameObject);
+	} 
+	for (GameObject* GameObject : InDynamicGameObjects)
+	{
+		DynamicGameObjects.push_back(GameObject);
+	}
+
+	int ObjectIndex = 0;
+	for (GameObject* GameObject : StaticGameObjects)
+	{
+		if (GameObject)
+		{
+			GameObject->BuildRootSignature(D3DDevice.Get());
+			GameObject->BuildShadersAndInputLayout();
+			GameObject->BuildGameObjectGeometry(D3DDevice.Get(), CommandList.Get());
+			GameObject->BuildRenderItem(ObjectIndex);
+			GameObject->BuildPSO(D3DDevice.Get(), BackBufferFormat, DepthStencilFormat, b4xMsaaState, QualityOf4xMsaa);
+			++ObjectIndex;
+		}
+	}
+	for (GameObject* GameObject : DynamicGameObjects)
+	{
+		if (GameObject)
+		{
+			GameObject->BuildRootSignature(D3DDevice.Get());
+			GameObject->BuildShadersAndInputLayout();
+			GameObject->BuildGameObjectGeometry(D3DDevice.Get(), CommandList.Get());
+			GameObject->BuildRenderItem(ObjectIndex);
+			GameObject->BuildPSO(D3DDevice.Get(), BackBufferFormat, DepthStencilFormat, b4xMsaaState, QualityOf4xMsaa);
+			++ObjectIndex;
+		}
+	}
+
+	BuildFrameResources();
 
 	ThrowIfFailed(CommandList->Close());
 	ID3D12CommandList* CmdsLists[] = { CommandList.Get() };
@@ -82,31 +122,44 @@ bool DX12::Init()
 
 void DX12::Update()
 {
-	float X = Radius * sinf(Phi) * cosf(Theta);
-	float Z = Radius * sinf(Phi) * sinf(Theta);
-	float Y = Radius * cosf(Phi);
+	OnKeyboardInput();
+	UpdateCamera();
 
-	XMVECTOR Pos = XMVectorSet(X, Y, Z, 1.0f);
-	XMVECTOR Target = XMVectorZero();
-	XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	CurFrameResourceIndex = (CurFrameResourceIndex + 1) % NumFrameResources;
+	CurFrameResource = FrameResources[CurFrameResourceIndex].get();
 
-	XMMATRIX V = XMMatrixLookAtLH(Pos, Target, Up);
-	XMStoreFloat4x4(&View, V);
+	if (CurFrameResource->Fence != 0 && Fence->GetCompletedValue() < CurFrameResource->Fence)
+	{
+		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+		ThrowIfFailed(Fence->SetEventOnCompletion(CurFrameResource->Fence, eventHandle));
+		WaitForSingleObject(eventHandle, INFINITE);
+		CloseHandle(eventHandle);
+	}
 
-	XMMATRIX W = XMLoadFloat4x4(&World);
-	XMMATRIX P = XMLoadFloat4x4(&Proj);
-	XMMATRIX WVP = W * V * P;
+	for (GameObject* GameObject : StaticGameObjects)
+	{
+		if (GameObject)
+		{
+			GameObject->Update(CurFrameResource);
+		}
+	}
+	for (GameObject* GameObject : DynamicGameObjects)
+	{
+		if (GameObject)
+		{
+			GameObject->Update(CurFrameResource);
+		}
+	}
 
-	ObjectConstants ObjConstants;
-	XMStoreFloat4x4(&ObjConstants.WorldViewProj, XMMatrixTranspose(WVP));
-	ObjectCB->CopyData(0, ObjConstants);
+	UpdateMainPassConstantBuffer();
 }
 
 void DX12::Draw()
 {
-	ThrowIfFailed(CommandAllocator->Reset());
+	ComPtr<ID3D12CommandAllocator> CmdListAlloc = CurFrameResource->CmdListAlloc;
 
-	ThrowIfFailed(CommandList->Reset(CommandAllocator.Get(), PSO.Get()));
+	ThrowIfFailed(CmdListAlloc->Reset());
+	ThrowIfFailed(CommandList->Reset(CmdListAlloc.Get(), nullptr));
 
 	CommandList->RSSetViewports(1, &ScreenViewport);
 	CommandList->RSSetScissorRects(1, &ScissorRect);
@@ -123,22 +176,10 @@ void DX12::Draw()
 
 	CommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
-	ID3D12DescriptorHeap* descriptorHeaps[] = { CBVHeap.Get() };
-	CommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+	DrawItems();
 
-	CommandList->SetGraphicsRootSignature(RootSignature.Get());
-
-	CommandList->IASetVertexBuffers(0, 1, &BoxGeo->VertexBufferView());
-	CommandList->IASetIndexBuffer(&BoxGeo->IndexBufferView());
-	CommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	CommandList->SetGraphicsRootDescriptorTable(0, CBVHeap->GetGPUDescriptorHandleForHeapStart());
-
-	CommandList->DrawIndexedInstanced(
-		BoxGeo->DrawArgs["box"].IndexCount,
-		1, 0, 0, 0);
-
-	CommandList->ResourceBarrier(1,
+	CommandList->ResourceBarrier(
+		1,
 		&CD3DX12_RESOURCE_BARRIER::Transition(
 			CurrentBackBuffer(),
 			D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -150,9 +191,11 @@ void DX12::Draw()
 	CommandQueue->ExecuteCommandLists(_countof(CmdsLists), CmdsLists);
 
 	ThrowIfFailed(SwapChain->Present(0, 0));
-	CurrBackBuffer = (CurrBackBuffer + 1) % SwapChainBufferCount;
+	CurBackBuffer = (CurBackBuffer + 1) % SwapChainBufferCount;
 
-	FlushCommandQueue();
+	CurFrameResource->Fence = ++CurrentFence;
+
+	CommandQueue->Signal(Fence.Get(), CurrentFence);
 }
 
 void DX12::OnResize()
@@ -180,7 +223,7 @@ void DX12::OnResize()
 		BackBufferFormat,
 		DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
-	CurrBackBuffer = 0;
+	CurBackBuffer = 0;
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE RTVHeapHandle(RTVHeap->GetCPUDescriptorHandleForHeapStart());
 
@@ -250,6 +293,8 @@ void DX12::OnResize()
 
 	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	XMStoreFloat4x4(&Proj, P);
+
+	MainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 
 void DX12::Toggle4xMsaaState()
@@ -426,182 +471,23 @@ void DX12::FlushCommandQueue()
 	}
 }
 
-void DX12::BuildDescriptorHeaps()
+void DX12::BuildFrameResources()
 {
-	D3D12_DESCRIPTOR_HEAP_DESC CBVHeapDesc;
-	CBVHeapDesc.NumDescriptors = 1;
-	CBVHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	CBVHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	CBVHeapDesc.NodeMask = 0;
-	ThrowIfFailed(D3DDevice->CreateDescriptorHeap(&CBVHeapDesc, IID_PPV_ARGS(&CBVHeap)));
-}
-
-void DX12::BuildConstantBuffers()
-{
-	ObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(D3DDevice.Get(), 1, true);
-
-	UINT ObjCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-	D3D12_GPU_VIRTUAL_ADDRESS CbAddress = ObjectCB->Resource()->GetGPUVirtualAddress();
-	int BoxCBufIndex = 0;
-	CbAddress += BoxCBufIndex * ObjCBByteSize;
-
-	D3D12_CONSTANT_BUFFER_VIEW_DESC CBVDesc;
-	CBVDesc.BufferLocation = CbAddress;
-	CBVDesc.SizeInBytes = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-	D3DDevice->CreateConstantBufferView(&CBVDesc, CBVHeap->GetCPUDescriptorHandleForHeapStart());
-}
-
-void DX12::BuildRootSignature()
-{
-	CD3DX12_ROOT_PARAMETER SlotRootParameter[1];
-
-	CD3DX12_DESCRIPTOR_RANGE CBVTable;
-	CBVTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-	SlotRootParameter[0].InitAsDescriptorTable(1, &CBVTable);
-
-	CD3DX12_ROOT_SIGNATURE_DESC RootSigDesc(1, SlotRootParameter, 0, nullptr,
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-	ComPtr<ID3DBlob> SerializedRootSig = nullptr;
-	ComPtr<ID3DBlob> ErrorBlob = nullptr;
-	HRESULT Hr = D3D12SerializeRootSignature(&RootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		SerializedRootSig.GetAddressOf(), ErrorBlob.GetAddressOf());
-
-	if (ErrorBlob != nullptr)
+	for (int i = 0; i < NumFrameResources; ++i)
 	{
-		::OutputDebugStringA((char*)ErrorBlob->GetBufferPointer());
+		FrameResources.push_back(
+			std::make_unique<FrameResource>(
+				D3DDevice.Get(),
+				1,
+				(UINT)StaticGameObjects.size() + (UINT)DynamicGameObjects.size(),
+				DynamicGameObjects)
+		);
 	}
-	ThrowIfFailed(Hr);
-
-	ThrowIfFailed(D3DDevice->CreateRootSignature(
-		0,
-		SerializedRootSig->GetBufferPointer(),
-		SerializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&RootSignature)));
-}
-
-void DX12::BuildShadersAndInputLayout()
-{
-	HRESULT Hr = S_OK;
-
-	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Box.hlsl", nullptr, "VSMain", "vs_5_0");
-	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Box.hlsl", nullptr, "PSMain", "ps_5_0");
-
-	InputLayout =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-	};
-}
-
-void DX12::BuildBoxGeometry()
-{
-	std::array<Vertex, 8> Vertices =
-	{
-		Vertex({ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::White) }),
-		Vertex({ XMFLOAT3(-1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Black) }),
-		Vertex({ XMFLOAT3(+1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Red) }),
-		Vertex({ XMFLOAT3(+1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::Green) }),
-		Vertex({ XMFLOAT3(-1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Blue) }),
-		Vertex({ XMFLOAT3(-1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Yellow) }),
-		Vertex({ XMFLOAT3(+1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Cyan) }),
-		Vertex({ XMFLOAT3(+1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Magenta) })
-	};
-
-	std::array<std::uint16_t, 36> indices =
-	{
-		0, 1, 2,
-		0, 2, 3,
-
-		4, 6, 5,
-		4, 7, 6,
-
-		4, 5, 1,
-		4, 1, 0,
-
-		3, 2, 6,
-		3, 6, 7,
-
-		1, 5, 6,
-		1, 6, 2,
-
-		4, 0, 3,
-		4, 3, 7
-	};
-
-	const UINT VBByteSize = (UINT)Vertices.size() * sizeof(Vertex);
-	const UINT IBByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-	BoxGeo = std::make_unique<MeshGeometry>();
-	BoxGeo->Name = "boxGeo";
-
-	ThrowIfFailed(D3DCreateBlob(VBByteSize, &BoxGeo->VertexBufferCPU));
-	CopyMemory(BoxGeo->VertexBufferCPU->GetBufferPointer(), Vertices.data(), VBByteSize);
-
-	ThrowIfFailed(D3DCreateBlob(IBByteSize, &BoxGeo->IndexBufferCPU));
-	CopyMemory(BoxGeo->IndexBufferCPU->GetBufferPointer(), indices.data(), IBByteSize);
-
-	BoxGeo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
-		D3DDevice.Get(),
-		CommandList.Get(), 
-		Vertices.data(), 
-		VBByteSize, 
-		BoxGeo->VertexBufferUploader);
-
-	BoxGeo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
-		D3DDevice.Get(),
-		CommandList.Get(), 
-		indices.data(), 
-		IBByteSize, 
-		BoxGeo->IndexBufferUploader);
-
-	BoxGeo->VertexByteStride = sizeof(Vertex);
-	BoxGeo->VertexBufferByteSize = VBByteSize;
-	BoxGeo->IndexFormat = DXGI_FORMAT_R16_UINT;
-	BoxGeo->IndexBufferByteSize = IBByteSize;
-
-	SubmeshGeometry Submesh;
-	Submesh.IndexCount = (UINT)indices.size();
-	Submesh.StartIndexLocation = 0;
-	Submesh.BaseVertexLocation = 0;
-
-	BoxGeo->DrawArgs["box"] = Submesh;
-}
-
-void DX12::BuildPSO()
-{
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC PSODesc;
-	ZeroMemory(&PSODesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	PSODesc.InputLayout = { InputLayout.data(), (UINT)InputLayout.size() };
-	PSODesc.pRootSignature = RootSignature.Get();
-	PSODesc.VS =
-	{
-		reinterpret_cast<BYTE*>(VSByteCode->GetBufferPointer()),
-		VSByteCode->GetBufferSize()
-	};
-	PSODesc.PS =
-	{
-		reinterpret_cast<BYTE*>(PSByteCode->GetBufferPointer()),
-		PSByteCode->GetBufferSize()
-	};
-	PSODesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	PSODesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	PSODesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	PSODesc.SampleMask = UINT_MAX;
-	PSODesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	PSODesc.NumRenderTargets = 1;
-	PSODesc.RTVFormats[0] = BackBufferFormat;
-	PSODesc.SampleDesc.Count = b4xMsaaState ? 4 : 1;
-	PSODesc.SampleDesc.Quality = b4xMsaaState ? (QualityOf4xMsaa - 1) : 0;
-	PSODesc.DSVFormat = DepthStencilFormat;
-	ThrowIfFailed(D3DDevice->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(&PSO)));
 }
 
 ID3D12Resource* DX12::CurrentBackBuffer() const
 {
-	return SwapChainBuffer[CurrBackBuffer].Get();
+	return SwapChainBuffer[CurBackBuffer].Get();
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE DX12::DepthStencilView() const
@@ -613,23 +499,8 @@ D3D12_CPU_DESCRIPTOR_HANDLE DX12::CurrentBackBufferView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
 		RTVHeap->GetCPUDescriptorHandleForHeapStart(),
-		CurrBackBuffer,
+		CurBackBuffer,
 		RTVDescriptorSize);
-}
-
-void DX12::SetTheta(float InTheta)
-{
-	Theta = InTheta;
-}
-
-void DX12::SetPhi(float InPhi)
-{
-	Phi = InPhi;
-}
-
-void DX12::SetRadius(float InRadius)
-{
-	Radius = InRadius;
 }
 
 float DX12::GetTheta() const
@@ -645,4 +516,161 @@ float DX12::GetPhi() const
 float DX12::GetRadius() const
 {
 	return Radius;
+}
+
+void DX12::DrawItems()
+{
+	ID3D12Resource* PassCB = CurFrameResource->PassCB->Resource();
+
+	UINT ObjCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	ID3D12Resource* ObjectCB = CurFrameResource->ObjectCB->Resource();
+
+	for (GameObject* GameObject : StaticGameObjects)
+	{
+		if (GameObject)
+		{
+			CommandList->SetGraphicsRootSignature(GameObject->GetRootSignature());
+
+			RenderItem* Item = GameObject->GetItem();
+
+			if (bIsWireFrame)
+			{
+				CommandList->SetPipelineState(GameObject->GetPSO("Opaque_WireFrame"));
+			}
+			else
+			{
+				CommandList->SetPipelineState(GameObject->GetPSO("Opaque"));
+			}
+
+			CommandList->IASetVertexBuffers(0, 1, &Item->Geo->VertexBufferView());
+			CommandList->IASetIndexBuffer(&Item->Geo->IndexBufferView());
+			CommandList->IASetPrimitiveTopology(Item->PrimitiveType);
+
+			CommandList->SetGraphicsRootConstantBufferView(1, PassCB->GetGPUVirtualAddress());
+
+			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress();
+			ObjCBAddress += Item->ObjCBIndex * ObjCBByteSize;
+
+			CommandList->SetGraphicsRootConstantBufferView(0, ObjCBAddress);
+
+			CommandList->DrawIndexedInstanced(Item->IndexCount, 1, Item->StartIndexLocation, Item->BaseVertexLocation, 0);
+		}
+	}
+	for (GameObject* GameObject : DynamicGameObjects)
+	{
+		if (GameObject)
+		{
+			CommandList->SetGraphicsRootSignature(GameObject->GetRootSignature());
+
+			RenderItem* Item = GameObject->GetItem();
+
+			if (bIsWireFrame)
+			{
+				CommandList->SetPipelineState(GameObject->GetPSO("Opaque_WireFrame"));
+			}
+			else
+			{
+				CommandList->SetPipelineState(GameObject->GetPSO("Opaque"));
+			}
+
+			CommandList->IASetVertexBuffers(0, 1, &Item->Geo->VertexBufferView());
+			CommandList->IASetIndexBuffer(&Item->Geo->IndexBufferView());
+			CommandList->IASetPrimitiveTopology(Item->PrimitiveType);
+
+			CommandList->SetGraphicsRootConstantBufferView(1, PassCB->GetGPUVirtualAddress());
+
+			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress();
+			ObjCBAddress += Item->ObjCBIndex * ObjCBByteSize;
+
+			CommandList->SetGraphicsRootConstantBufferView(0, ObjCBAddress);
+
+			CommandList->DrawIndexedInstanced(Item->IndexCount, 1, Item->StartIndexLocation, Item->BaseVertexLocation, 0);
+		}
+	}
+}
+
+void DX12::OnKeyboardInput()
+{
+	if (GetAsyncKeyState('1') & 0x8000)
+	{
+		bIsWireFrame = true;
+	}
+	else
+	{
+		bIsWireFrame = false;
+	}
+
+	const float Dt = GameTimer::Get()->DeltaTime();
+
+	if (GetAsyncKeyState('W') & 0x8000)
+	{
+		MainCamera->Walk(35.0f * Dt);
+	}
+	if (GetAsyncKeyState('S') & 0x8000)
+	{
+		MainCamera->Walk(-35.0f * Dt);
+	}
+	if (GetAsyncKeyState('A') & 0x8000)
+	{
+		MainCamera->Strafe(-35.0f * Dt);
+	}
+	if (GetAsyncKeyState('D') & 0x8000)
+	{
+		MainCamera->Strafe(35.0f * Dt);
+	}
+	if (GetAsyncKeyState('E') & 0x8000)
+	{
+		MainCamera->Fly(35.0f * Dt);
+	}
+	if (GetAsyncKeyState('Q') & 0x8000)
+	{
+		MainCamera->Fly(-35.0f * Dt);
+	}
+
+	MainCamera->UpdateViewMatrix();
+}
+
+void DX12::UpdateCamera()
+{
+	EyePos.x = Radius * sinf(Phi) * cosf(Theta);
+	EyePos.z = Radius * sinf(Phi) * sinf(Theta);
+	EyePos.y = Radius * cosf(Phi);
+
+	XMVECTOR Pos = XMVectorSet(EyePos.x, EyePos.y, EyePos.z, 1.0f);
+	XMVECTOR Target = XMVectorZero();
+	XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+	XMMATRIX V = XMMatrixLookAtLH(Pos, Target, Up);
+	XMStoreFloat4x4(&View, V);
+}
+
+void DX12::UpdateMainPassConstantBuffer()
+{
+	XMMATRIX NewView = MainCamera->GetView();
+	XMMATRIX NewProj = MainCamera->GetProj();
+
+	XMMATRIX NewViewProj = XMMatrixMultiply(NewView, NewProj);
+	XMMATRIX NewInvView = XMMatrixInverse(&XMMatrixDeterminant(NewView), NewView);
+	XMMATRIX NewInvProj = XMMatrixInverse(&XMMatrixDeterminant(NewProj), NewProj);
+	XMMATRIX NewInvViewProj = XMMatrixInverse(&XMMatrixDeterminant(NewViewProj), NewViewProj);
+
+	int Width = WindowManager::Get()->GetFirstWindow()->GetWidth();
+	int Height = WindowManager::Get()->GetFirstWindow()->GetHeight();
+
+	XMStoreFloat4x4(&MainPassCB.View, XMMatrixTranspose(NewView));
+	XMStoreFloat4x4(&MainPassCB.InvView, XMMatrixTranspose(NewInvView));
+	XMStoreFloat4x4(&MainPassCB.Proj, XMMatrixTranspose(NewProj));
+	XMStoreFloat4x4(&MainPassCB.InvProj, XMMatrixTranspose(NewInvProj));
+	XMStoreFloat4x4(&MainPassCB.ViewProj, XMMatrixTranspose(NewViewProj));
+	XMStoreFloat4x4(&MainPassCB.InvViewProj, XMMatrixTranspose(NewInvViewProj));
+	MainPassCB.EyePosW = MainCamera->GetPosition3f();
+	MainPassCB.RenderTargetSize = XMFLOAT2((float)Width, (float)Height);
+	MainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / Width, 1.0f / Height);
+	MainPassCB.NearZ = 1.0f;
+	MainPassCB.FarZ = 1000.0f;
+	MainPassCB.TotalTime = GameTimer::Get()->TotalTime();
+	MainPassCB.DeltaTime = GameTimer::Get()->DeltaTime();
+
+	UploadBuffer<PassConstants>* CurPassCB = CurFrameResource->PassCB.get();
+	CurPassCB->CopyData(0, MainPassCB);
 }

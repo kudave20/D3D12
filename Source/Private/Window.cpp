@@ -2,6 +2,7 @@
 #include "Engine.h"
 #include "DX12.h"
 #include "Framework/GameTimer.h"
+#include "Framework/Camera.h"
 #include <string>
 #include <cassert>
 
@@ -29,12 +30,12 @@ WindowManager* WindowManager::Get()
 	return Manager;
 }
 
-bool WindowManager::Init()
+bool WindowManager::Init(Camera* InCamera)
 {
 	for (int Index = 0; Index < WindowsCount; Index++)
 	{
 		std::unique_ptr<Window> NewWindow = std::make_unique<Window>();
-		if (false == NewWindow->Init(InitialWidth, InitialHeight))
+		if (false == NewWindow->Init(InitialWidth, InitialHeight, InCamera))
 		{
 			return false;
 		}
@@ -242,26 +243,8 @@ void Window::OnPointerMove(WPARAM State, int X, int Y)
 		float Dx = XMConvertToRadians(0.25f * static_cast<float>(X - LastMousePos.x));
 		float Dy = XMConvertToRadians(0.25f * static_cast<float>(Y - LastMousePos.y));
 
-		float Theta = Graphics->GetTheta();
-		float Phi = Graphics->GetPhi();
-		Theta -= Dx;
-		Phi -= Dy;
-
-		Phi = MathHelper::Clamp(Phi, 0.1f, MathHelper::Pi - 0.1f);
-
-		Graphics->SetTheta(Theta);
-		Graphics->SetPhi(Phi);
-	}
-	else if ((State & MK_RBUTTON) != 0)
-	{
-		float Dx = 0.005f * static_cast<float>(X - LastMousePos.x);
-		float Dy = 0.005f * static_cast<float>(Y - LastMousePos.y);
-
-		float Radius = Graphics->GetRadius();
-		Radius -= Dx - Dy;
-
-		Radius = MathHelper::Clamp(Radius, 3.0f, 15.0f);
-		Graphics->SetRadius(Radius);
+		MainCamera->Pitch(Dy);
+		MainCamera->RotateY(Dx);
 	}
 
 	LastMousePos.x = X;
@@ -273,7 +256,7 @@ void Window::OnPointerUp(WPARAM state, int x, int y)
 	ReleaseCapture();
 }
 
-bool Window::Init(int InWidth, int InHeight)
+bool Window::Init(int InWidth, int InHeight, Camera* InCamera)
 {
 	HInst = GetModuleHandle(nullptr);
 
@@ -320,6 +303,8 @@ bool Window::Init(int InWidth, int InHeight)
 
 	ShowWindow(HWnd, SW_SHOW);
 	UpdateWindow(HWnd);
+
+	MainCamera = InCamera;
 
 	return true;
 }
