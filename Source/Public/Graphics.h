@@ -17,12 +17,11 @@ public:
 	virtual ~IGraphics();
 
 public:
-	virtual bool Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, std::vector<GameObject*> InDynamicGameObjects) = 0;
+	virtual bool Init(Camera* InCamera, std::vector<GameObject*> InGameObjects) = 0;
 	virtual void Update() = 0;
 	virtual void Draw() = 0;
 	virtual void OnResize() = 0;
 
 protected:
-	std::vector<GameObject*> StaticGameObjects;
-	std::vector<GameObject*> DynamicGameObjects;
+	std::vector<GameObject*> GameObjects;
 };

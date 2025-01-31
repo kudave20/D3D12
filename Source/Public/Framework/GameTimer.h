@@ -11,6 +11,7 @@ class GameTimer
 {
 public:
 	GameTimer();
+	~GameTimer();
 
 public:
 	static GameTimer* Get();

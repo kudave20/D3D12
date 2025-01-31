@@ -16,13 +16,16 @@ class MathHelper;
 struct RenderItem
 {
 	RenderItem() = default;
+	RenderItem(const RenderItem& Rhs) = delete;
 
 	XMFLOAT4X4 World = MathHelper::Identity4x4();
+	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
-	int NumFramesDirty = NumFrameResources;
+	int NumFramesDirty = gNumFrameResources;
 
 	UINT ObjCBIndex = -1;
 
+	Material* Mat = nullptr;
 	MeshGeometry* Geo = nullptr;
 
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -40,7 +43,7 @@ public:
 
 public:
 	virtual void BuildRootSignature(ID3D12Device* Device) = 0;
-	virtual void BuildGameObjectGeometry(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList);
+	virtual void BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList);
 	virtual void BuildShadersAndInputLayout() = 0;
 	virtual void BuildRenderItem(int ObjectIndex) = 0;
 	virtual void BuildPSO(ID3D12Device* Device,
@@ -52,8 +55,14 @@ public:
 public:
 	virtual void Update(FrameResource* CurFrameResource);
 
+private:
+	void UpdateObjectCB(FrameResource* CurFrameResource);
+	void UpdateMaterialCB(FrameResource* CurFrameResource);
+
 public:
 	virtual void Translate(float Dx, float Dy, float Dz);
+	virtual void Rotate(float Dx, float Dy, float Dz);
+	virtual void Scale(float Dx, float Dy, float Dz);
 
 public:
 	RenderItem* GetItem() const;
@@ -61,8 +70,11 @@ public:
 	ID3D12PipelineState* GetPSO(const std::string& Key) const;
 	int GetVertexCount() const;
 	std::string GetName() const;
+	bool UseMaterial() const;
+	Texture* GetTexture() const;
 
 protected:
+	// FIXME: 다른데 놔두는게 좋지 않을까.
 	static std::unordered_map<std::string, int> Instances;
 
 protected:
@@ -78,6 +90,9 @@ protected:
 	std::unique_ptr<MeshGeometry> Geometry;
 	std::unique_ptr<RenderItem> Item;
 
+	std::unique_ptr<Material> Mat;
+	std::unique_ptr<Texture> Tex;
+
 	int VertexCount = 0;
 
 	RenderItem* RenderItemLayer[(int)RenderLayer::Count] = { nullptr };
@@ -88,4 +103,12 @@ protected:
 	float OffsetX = 0.0f;
 	float OffsetY = 0.0f;
 	float OffsetZ = 0.0f;
+
+	float Pitch = 0.0f;
+	float Yaw = 0.0f;
+	float Roll = 0.0f;
+
+	float ScaleX = 1.0f;
+	float ScaleY = 1.0f;
+	float ScaleZ = 1.0f;
 };

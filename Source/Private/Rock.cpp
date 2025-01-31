@@ -1,17 +1,15 @@
-#include "Landscape.h"
-#include "FrameResource.h"
-#include "Framework/GeometryGenerator.h"
-#include "Framework/d3dUtil.h"
+#include "Rock.h"
+#include "FbxLoader.h"
 
-Landscape::Landscape()
+Rock::Rock()
 {
 }
 
-Landscape::~Landscape()
+Rock::~Rock()
 {
 }
 
-void Landscape::BuildRootSignature(ID3D12Device* Device)
+void Rock::BuildRootSignature(ID3D12Device* Device)
 {
 	CD3DX12_DESCRIPTOR_RANGE TexTable;
 	TexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -45,44 +43,30 @@ void Landscape::BuildRootSignature(ID3D12Device* Device)
 		IID_PPV_ARGS(RootSignature.GetAddressOf())));
 }
 
-void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
+void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
 {
-	GeometryGenerator GeometryGenerator;
-	GeometryGenerator::MeshData Grid = GeometryGenerator.CreateGrid(160.0f, 160.0f, 41, 41);
+	FbxLoader::Get()->Load("Models/Rock.fbx");
 
-	Mat = std::make_unique<Material>();
-	Mat->Name = "LandMat";
-	Mat->MatCBIndex = 0;
-	Mat->DiffuseSrvHeapIndex = 0;
-	Mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	Mat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	Mat->Roughness = 0.3f;
+	std::vector<Texture*> Textures = FbxLoader::Get()->GetTextures();
 
-	Tex = std::make_unique<Texture>();
-	Tex->Filename = L"Textures/texture_ground.dds";
-	Tex->Name = "LandTex";
+	// FIXME: 텍스쳐 여러개 받자
+	Tex = std::make_unique<Texture>(*Textures[0]);
+
 	ThrowIfFailed(CreateDDSTextureFromFile12(Device, CommandList, Tex->Filename.c_str(), Tex->Resource, Tex->UploadHeap));
 
-	std::vector<Vertex> Vertices(Grid.Vertices.size());
-	for (size_t i = 0; i < Grid.Vertices.size(); ++i)
-	{
-		XMFLOAT3& P = Grid.Vertices[i].Position;
-		Vertices[i].Pos = P;
-		Vertices[i].Pos.y = GetFloorHeight(P.x, P.z);
-		Vertices[i].Normal = Grid.Vertices[i].Normal;
-		Vertices[i].TexCoord.x = Grid.Vertices[i].TexC.x * 10.0f;
-		Vertices[i].TexCoord.y = Grid.Vertices[i].TexC.y * 10.0f;
-	}
+	std::vector<Material*> Materials = FbxLoader::Get()->GetMaterials();
 
-	VertexCount = (int)Grid.Vertices.size();
+	// FIXME: 머티리얼 여러개 받을 수 있게 해야하지 않나?
+	Mat = std::make_unique<Material>(*Materials[0]);
 
+	const std::vector<Vertex>& Vertices = FbxLoader::Get()->GetVertices();
 	const UINT VBByteSize = (UINT)Vertices.size() * sizeof(Vertex);
 
-	std::vector<std::uint16_t> Indices = Grid.GetIndices16();
-	const UINT IBByteSize = (UINT)Indices.size() * sizeof(std::uint16_t);
+	const std::vector<uint16_t>& Indices = FbxLoader::Get()->GetIndices();
+	const UINT IBByteSize = (UINT)Indices.size() * sizeof(uint16_t);
 
 	std::unique_ptr<MeshGeometry> Geo = std::make_unique<MeshGeometry>();
-	Geo->Name = "LandGeo";
+	Geo->Name = "RockGeo";
 
 	ThrowIfFailed(D3DCreateBlob(VBByteSize, &Geo->VertexBufferCPU));
 	CopyMemory(Geo->VertexBufferCPU->GetBufferPointer(), Vertices.data(), VBByteSize);
@@ -103,7 +87,7 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 	Submesh.StartIndexLocation = 0;
 	Submesh.BaseVertexLocation = 0;
 
-	Geo->DrawArgs["Grid"] = Submesh;
+	Geo->DrawArgs["Rock"] = Submesh;
 
 	Geometry = std::move(Geo);
 
@@ -111,10 +95,10 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 	GameObject::BuildGameObject(Device, CommandList);
 }
 
-void Landscape::BuildShadersAndInputLayout()
+void Rock::BuildShadersAndInputLayout()
 {
-	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "VSMain", "vs_5_0");
-	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "PSMain", "ps_5_0");
+	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "VSMain", "vs_5_0");
+	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "PSMain", "ps_5_0");
 
 	InputLayout =
 	{
@@ -124,31 +108,25 @@ void Landscape::BuildShadersAndInputLayout()
 	};
 }
 
-void Landscape::BuildRenderItem(int ObjectIndex)
+void Rock::BuildRenderItem(int ObjectIndex)
 {
 	std::unique_ptr<RenderItem> RItem = std::make_unique<RenderItem>();
 	RItem->World = MathHelper::Identity4x4();
+	XMStoreFloat4x4(&RItem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
 	RItem->ObjCBIndex = ObjectIndex;
 	RItem->Mat = Mat.get();
 	RItem->Geo = Geometry.get();
 	RItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	RItem->IndexCount = RItem->Geo->DrawArgs["Grid"].IndexCount;
-	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Grid"].StartIndexLocation;
-	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Grid"].BaseVertexLocation;
+	RItem->IndexCount = RItem->Geo->DrawArgs["Rock"].IndexCount;
+	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Rock"].StartIndexLocation;
+	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Rock"].BaseVertexLocation;
 
 	RenderItemLayer[(int)RenderLayer::Opaque] = RItem.get();
 
 	Item = std::move(RItem);
 }
 
-float Landscape::GetFloorHeight(float X, float Z)
-{
-	return 0.0f;
-
-	//return 0.03f * (Z * sinf(0.1f * X) + X * cosf(0.1f * Z));
-}
-
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Landscape::GetStaticSamplers()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Rock::GetStaticSamplers()
 {
 	const CD3DX12_STATIC_SAMPLER_DESC PointWrap(
 		0,

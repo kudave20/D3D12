@@ -1,9 +1,11 @@
 #include "Engine.h"
 #include "Framework/GameTimer.h"
 #include "Framework/Camera.h"
+#include "FbxLoader.h"
 #include "Window.h"
 #include "DX12.h"
 #include "Landscape.h"
+#include "Rock.h"
 #include <cassert>
 #include <windowsx.h>
 
@@ -17,6 +19,7 @@ Engine::Engine()
 
 Engine::~Engine()
 {
+	Graphics->FlushCommandQueue();
 }
 
 Engine* Engine::GetEngine()
@@ -139,6 +142,7 @@ LRESULT Engine::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 bool Engine::Init()
 {
 	InitTimer();
+	InitLoader();
 	InitCamera();
 
 	if (false == InitWindow())
@@ -173,32 +177,27 @@ bool Engine::InitWindow()
 void Engine::InitGameObjects()
 {
 	std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>();
-	StaticGameObjects.push_back(std::move(LandScapeGO));
+	GameObjects.push_back(std::move(LandScapeGO));
+
+	std::unique_ptr<Rock> RockGO = std::make_unique<Rock>();
+	RockGO->Scale(3.0f, 3.0f, 3.0f);
+	GameObjects.push_back(std::move(RockGO));
 }
 
 bool Engine::InitGraphics()
 {
 	Graphics = std::make_unique<DX12>();
 
-	std::vector<GameObject*> StaticGameObjectPtrs;
-	for (auto&& GameObject : StaticGameObjects)
+	std::vector<GameObject*> GameObjectPtrs;
+	for (int i = 0; i < GameObjects.size(); i++)
 	{
-		if (GameObject)
+		if (GameObjects[i])
 		{
-			StaticGameObjectPtrs.push_back(GameObject.get());
+			GameObjectPtrs.push_back(GameObjects[i].get());
 		}
 	}
 
-	std::vector<GameObject*> DynamicGameObjectPtrs;
-	for (auto&& GameObject : DynamicGameObjects)
-	{
-		if (GameObject)
-		{
-			DynamicGameObjectPtrs.push_back(GameObject.get());
-		}
-	}
-
-	if (false == Graphics->Init(MainCamera.get(), StaticGameObjectPtrs, DynamicGameObjectPtrs))
+	if (false == Graphics->Init(MainCamera.get(), GameObjectPtrs))
 	{
 		return false;
 	}
@@ -209,8 +208,13 @@ bool Engine::InitGraphics()
 void Engine::InitTimer()
 {
 	Timer = std::make_unique<GameTimer>();
-
 	Timer->Init();
+}
+
+void Engine::InitLoader()
+{
+	Loader = std::make_unique<FbxLoader>();
+	Loader->Init();
 }
 
 void Engine::InitCamera()

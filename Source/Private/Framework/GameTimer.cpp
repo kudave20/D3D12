@@ -14,6 +14,10 @@ GameTimer::GameTimer()
 	Timer = this;
 }
 
+GameTimer::~GameTimer()
+{
+}
+
 GameTimer* GameTimer::Get()
 {
 	return Timer;

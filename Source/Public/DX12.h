@@ -4,15 +4,9 @@
 #include "Framework/d3dUtil.h"
 #include "FrameResource.h"
 
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "D3D12.lib")
-#pragma comment(lib, "dxgi.lib")
-
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
-
-const int NumFrameResources = 3;
 
 class GameObject;
 class Camera;
@@ -29,7 +23,7 @@ public:
 	virtual ~DX12();
 
 public:
-	virtual bool Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, std::vector<GameObject*> InDynamicGameObjects) override;
+	virtual bool Init(Camera* InCamera, std::vector<GameObject*> InGameObjects) override;
 	virtual void Update() override;
 	virtual void Draw() override;
 	virtual void OnResize() override;
@@ -39,18 +33,19 @@ public:
 
 	float AspectRatio() const;
 
+	void FlushCommandQueue();
+
 private:
 	void CreateCommandObjects();
 	void CreateSwapChain();
 	void CreateRtvAndDsvDescriptorHeaps();
 
 	void LogAdapters();
-	void LogAdapterOutputs(IDXGIAdapter* adapter);
-	void LogOutputDisplayModes(IDXGIOutput* output, DXGI_FORMAT format);
-
-	void FlushCommandQueue();
+	void LogAdapterOutputs(IDXGIAdapter* Adapter);
+	void LogOutputDisplayModes(IDXGIOutput* Output, DXGI_FORMAT Format);
 
 	void BuildFrameResources();
+	void BuildDescriptorHeaps();
 
 private:
 	ID3D12Resource* CurrentBackBuffer() const;
@@ -75,7 +70,7 @@ private:
 private:
 	ComPtr<IDXGIFactory4> DXGIFactory;
 	ComPtr<IDXGISwapChain> SwapChain;
-	ComPtr<ID3D12Device> D3DDevice;
+	ComPtr<ID3D12Device6> D3DDevice;
 
 	ComPtr<ID3D12Fence> Fence;
 	UINT64 CurrentFence = 0;
@@ -87,6 +82,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> RTVHeap;
 	ComPtr<ID3D12DescriptorHeap> DSVHeap;
 	ComPtr<ID3D12DescriptorHeap> CBVHeap;
+	ComPtr<ID3D12DescriptorHeap> SRVHeap;
 
 	std::vector<std::unique_ptr<FrameResource>> FrameResources;
 	FrameResource* CurFrameResource = nullptr;
@@ -100,6 +96,7 @@ private:
 	UINT RTVDescriptorSize = 0;
 	UINT DSVDescriptorSize = 0;
 	UINT CBVSRVUAVDescriptorSize = 0;
+	UINT CBVSRVDescriptorSize = 0;
 
 	static const int SwapChainBufferCount = 2;
 	int CurBackBuffer = 0;

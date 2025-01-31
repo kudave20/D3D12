@@ -6,15 +6,13 @@
 #include "Framework/GameTimer.h"
 #include "Framework/Camera.h"
 
+const int gNumFrameResources = 3;
+
 DX12::~DX12()
 {
-	if (D3DDevice)
-	{
-		FlushCommandQueue();
-	}
 }
 
-bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, std::vector<GameObject*> InDynamicGameObjects)
+bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InGameObjects)
 {
 	MainCamera = InCamera;
 
@@ -47,6 +45,7 @@ bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, 
 	RTVDescriptorSize = D3DDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	DSVDescriptorSize = D3DDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	CBVSRVUAVDescriptorSize = D3DDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	CBVSRVDescriptorSize = D3DDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS MSQualityLevels;
 	ZeroMemory(&MSQualityLevels, sizeof(MSQualityLevels));
@@ -74,35 +73,19 @@ bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, 
 
 	ThrowIfFailed(CommandList->Reset(CommandAllocator.Get(), nullptr));
 
-	for (GameObject* GameObject : InStaticGameObjects)
+	for (GameObject* GameObject : InGameObjects)
 	{
-		StaticGameObjects.push_back(GameObject);
-	} 
-	for (GameObject* GameObject : InDynamicGameObjects)
-	{
-		DynamicGameObjects.push_back(GameObject);
+		GameObjects.push_back(GameObject);
 	}
 
 	int ObjectIndex = 0;
-	for (GameObject* GameObject : StaticGameObjects)
+	for (GameObject* GameObject : GameObjects)
 	{
 		if (GameObject)
 		{
+			GameObject->BuildGameObject(D3DDevice.Get(), CommandList.Get());
 			GameObject->BuildRootSignature(D3DDevice.Get());
 			GameObject->BuildShadersAndInputLayout();
-			GameObject->BuildGameObjectGeometry(D3DDevice.Get(), CommandList.Get());
-			GameObject->BuildRenderItem(ObjectIndex);
-			GameObject->BuildPSO(D3DDevice.Get(), BackBufferFormat, DepthStencilFormat, b4xMsaaState, QualityOf4xMsaa);
-			++ObjectIndex;
-		}
-	}
-	for (GameObject* GameObject : DynamicGameObjects)
-	{
-		if (GameObject)
-		{
-			GameObject->BuildRootSignature(D3DDevice.Get());
-			GameObject->BuildShadersAndInputLayout();
-			GameObject->BuildGameObjectGeometry(D3DDevice.Get(), CommandList.Get());
 			GameObject->BuildRenderItem(ObjectIndex);
 			GameObject->BuildPSO(D3DDevice.Get(), BackBufferFormat, DepthStencilFormat, b4xMsaaState, QualityOf4xMsaa);
 			++ObjectIndex;
@@ -110,6 +93,7 @@ bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InStaticGameObjects, 
 	}
 
 	BuildFrameResources();
+	BuildDescriptorHeaps();
 
 	ThrowIfFailed(CommandList->Close());
 	ID3D12CommandList* CmdsLists[] = { CommandList.Get() };
@@ -125,7 +109,7 @@ void DX12::Update()
 	OnKeyboardInput();
 	UpdateCamera();
 
-	CurFrameResourceIndex = (CurFrameResourceIndex + 1) % NumFrameResources;
+	CurFrameResourceIndex = (CurFrameResourceIndex + 1) % gNumFrameResources;
 	CurFrameResource = FrameResources[CurFrameResourceIndex].get();
 
 	if (CurFrameResource->Fence != 0 && Fence->GetCompletedValue() < CurFrameResource->Fence)
@@ -136,14 +120,7 @@ void DX12::Update()
 		CloseHandle(eventHandle);
 	}
 
-	for (GameObject* GameObject : StaticGameObjects)
-	{
-		if (GameObject)
-		{
-			GameObject->Update(CurFrameResource);
-		}
-	}
-	for (GameObject* GameObject : DynamicGameObjects)
+	for (GameObject* GameObject : GameObjects)
 	{
 		if (GameObject)
 		{
@@ -175,6 +152,9 @@ void DX12::Draw()
 	CommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
 	CommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+	ID3D12DescriptorHeap* DescriptorHeaps[] = { SRVHeap.Get() };
+	CommandList->SetDescriptorHeaps(_countof(DescriptorHeaps), DescriptorHeaps);
 
 	DrawItems();
 
@@ -383,74 +363,74 @@ void DX12::CreateRtvAndDsvDescriptorHeaps()
 void DX12::LogAdapters()
 {
 	UINT i = 0;
-	IDXGIAdapter* adapter = nullptr;
-	std::vector<IDXGIAdapter*> adapterList;
-	while (DXGIFactory->EnumAdapters(i, &adapter) != DXGI_ERROR_NOT_FOUND)
+	IDXGIAdapter* Adapter = nullptr;
+	std::vector<IDXGIAdapter*> AdapterList;
+	while (DXGIFactory->EnumAdapters(i, &Adapter) != DXGI_ERROR_NOT_FOUND)
 	{
-		DXGI_ADAPTER_DESC desc;
-		adapter->GetDesc(&desc);
+		DXGI_ADAPTER_DESC Desc;
+		Adapter->GetDesc(&Desc);
 
-		std::wstring text = L"***Adapter: ";
-		text += desc.Description;
-		text += L"\n";
+		std::wstring Text = L"***Adapter: ";
+		Text += Desc.Description;
+		Text += L"\n";
 
-		OutputDebugString(text.c_str());
+		OutputDebugString(Text.c_str());
 
-		adapterList.push_back(adapter);
+		AdapterList.push_back(Adapter);
 
 		++i;
 	}
 
-	for (size_t i = 0; i < adapterList.size(); ++i)
+	for (size_t i = 0; i < AdapterList.size(); ++i)
 	{
-		LogAdapterOutputs(adapterList[i]);
-		ReleaseCom(adapterList[i]);
+		LogAdapterOutputs(AdapterList[i]);
+		ReleaseCom(AdapterList[i]);
 	}
 }
 
-void DX12::LogAdapterOutputs(IDXGIAdapter* adapter)
+void DX12::LogAdapterOutputs(IDXGIAdapter* Adapter)
 {
 	UINT i = 0;
-	IDXGIOutput* output = nullptr;
-	while (adapter->EnumOutputs(i, &output) != DXGI_ERROR_NOT_FOUND)
+	IDXGIOutput* Output = nullptr;
+	while (Adapter->EnumOutputs(i, &Output) != DXGI_ERROR_NOT_FOUND)
 	{
-		DXGI_OUTPUT_DESC desc;
-		output->GetDesc(&desc);
+		DXGI_OUTPUT_DESC Desc;
+		Output->GetDesc(&Desc);
 
-		std::wstring text = L"***Output: ";
-		text += desc.DeviceName;
-		text += L"\n";
-		OutputDebugString(text.c_str());
+		std::wstring Text = L"***Output: ";
+		Text += Desc.DeviceName;
+		Text += L"\n";
+		OutputDebugString(Text.c_str());
 
-		LogOutputDisplayModes(output, BackBufferFormat);
+		LogOutputDisplayModes(Output, BackBufferFormat);
 
-		ReleaseCom(output);
+		ReleaseCom(Output);
 
 		++i;
 	}
 }
 
-void DX12::LogOutputDisplayModes(IDXGIOutput* output, DXGI_FORMAT format)
+void DX12::LogOutputDisplayModes(IDXGIOutput* Output, DXGI_FORMAT Format)
 {
-	UINT count = 0;
-	UINT flags = 0;
+	UINT Count = 0;
+	UINT Flags = 0;
 
-	output->GetDisplayModeList(format, flags, &count, nullptr);
+	Output->GetDisplayModeList(Format, Flags, &Count, nullptr);
 
-	std::vector<DXGI_MODE_DESC> modeList(count);
-	output->GetDisplayModeList(format, flags, &count, &modeList[0]);
+	std::vector<DXGI_MODE_DESC> ModeList(Count);
+	Output->GetDisplayModeList(Format, Flags, &Count, &ModeList[0]);
 
-	for (const auto& x : modeList)
+	for (const auto& x : ModeList)
 	{
 		UINT n = x.RefreshRate.Numerator;
 		UINT d = x.RefreshRate.Denominator;
-		std::wstring text =
+		std::wstring Text =
 			L"Width = " + std::to_wstring(x.Width) + L" " +
 			L"Height = " + std::to_wstring(x.Height) + L" " +
 			L"Refresh = " + std::to_wstring(n) + L"/" + std::to_wstring(d) +
 			L"\n";
 
-		::OutputDebugString(text.c_str());
+		::OutputDebugString(Text.c_str());
 	}
 }
 
@@ -473,15 +453,41 @@ void DX12::FlushCommandQueue()
 
 void DX12::BuildFrameResources()
 {
-	for (int i = 0; i < NumFrameResources; ++i)
+	for (int i = 0; i < gNumFrameResources; ++i)
 	{
 		FrameResources.push_back(
 			std::make_unique<FrameResource>(
 				D3DDevice.Get(),
 				1,
-				(UINT)StaticGameObjects.size() + (UINT)DynamicGameObjects.size(),
-				DynamicGameObjects)
+				(UINT)GameObjects.size(),
+				1)
 		);
+	}
+}
+
+void DX12::BuildDescriptorHeaps()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC SRVHeapDesc = {};
+	SRVHeapDesc.NumDescriptors = (UINT)GameObjects.size();
+	SRVHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	SRVHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	ThrowIfFailed(D3DDevice->CreateDescriptorHeap(&SRVHeapDesc, IID_PPV_ARGS(&SRVHeap)));
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHandle(SRVHeap->GetCPUDescriptorHandleForHeapStart());
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC SRVDesc = {};
+	SRVDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	SRVDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	SRVDesc.Texture2D.MostDetailedMip = 0;
+	SRVDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+	for (GameObject* GameObject : GameObjects)
+	{
+		ID3D12Resource* Tex = GameObject->GetTexture()->Resource.Get();
+		SRVDesc.Format = Tex->GetDesc().Format;
+		SRVDesc.Texture2D.MipLevels = Tex->GetDesc().MipLevels;
+		D3DDevice->CreateShaderResourceView(Tex, &SRVDesc, DescriptorHandle);
+		DescriptorHandle.Offset(1, CBVSRVDescriptorSize);
 	}
 }
 
@@ -525,7 +531,10 @@ void DX12::DrawItems()
 	UINT ObjCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	ID3D12Resource* ObjectCB = CurFrameResource->ObjectCB->Resource();
 
-	for (GameObject* GameObject : StaticGameObjects)
+	UINT MatCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+	ID3D12Resource* MatCB = CurFrameResource->MaterialCB->Resource();
+
+	for (GameObject* GameObject : GameObjects)
 	{
 		if (GameObject)
 		{
@@ -546,43 +555,16 @@ void DX12::DrawItems()
 			CommandList->IASetIndexBuffer(&Item->Geo->IndexBufferView());
 			CommandList->IASetPrimitiveTopology(Item->PrimitiveType);
 
-			CommandList->SetGraphicsRootConstantBufferView(1, PassCB->GetGPUVirtualAddress());
+			CD3DX12_GPU_DESCRIPTOR_HANDLE Tex(SRVHeap->GetGPUDescriptorHandleForHeapStart());
+			Tex.Offset(Item->Mat->DiffuseSrvHeapIndex, CBVSRVDescriptorSize);
 
-			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress();
-			ObjCBAddress += Item->ObjCBIndex * ObjCBByteSize;
+			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress() + Item->ObjCBIndex * ObjCBByteSize;
+			D3D12_GPU_VIRTUAL_ADDRESS MatCBAddress = MatCB->GetGPUVirtualAddress() + Item->Mat->MatCBIndex * MatCBByteSize;
 
-			CommandList->SetGraphicsRootConstantBufferView(0, ObjCBAddress);
-
-			CommandList->DrawIndexedInstanced(Item->IndexCount, 1, Item->StartIndexLocation, Item->BaseVertexLocation, 0);
-		}
-	}
-	for (GameObject* GameObject : DynamicGameObjects)
-	{
-		if (GameObject)
-		{
-			CommandList->SetGraphicsRootSignature(GameObject->GetRootSignature());
-
-			RenderItem* Item = GameObject->GetItem();
-
-			if (bIsWireFrame)
-			{
-				CommandList->SetPipelineState(GameObject->GetPSO("Opaque_WireFrame"));
-			}
-			else
-			{
-				CommandList->SetPipelineState(GameObject->GetPSO("Opaque"));
-			}
-
-			CommandList->IASetVertexBuffers(0, 1, &Item->Geo->VertexBufferView());
-			CommandList->IASetIndexBuffer(&Item->Geo->IndexBufferView());
-			CommandList->IASetPrimitiveTopology(Item->PrimitiveType);
-
-			CommandList->SetGraphicsRootConstantBufferView(1, PassCB->GetGPUVirtualAddress());
-
-			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress();
-			ObjCBAddress += Item->ObjCBIndex * ObjCBByteSize;
-
-			CommandList->SetGraphicsRootConstantBufferView(0, ObjCBAddress);
+			CommandList->SetGraphicsRootDescriptorTable(0, Tex);
+			CommandList->SetGraphicsRootConstantBufferView(1, ObjCBAddress);
+			CommandList->SetGraphicsRootConstantBufferView(2, PassCB->GetGPUVirtualAddress());
+			CommandList->SetGraphicsRootConstantBufferView(3, MatCB->GetGPUVirtualAddress());
 
 			CommandList->DrawIndexedInstanced(Item->IndexCount, 1, Item->StartIndexLocation, Item->BaseVertexLocation, 0);
 		}
@@ -670,6 +652,13 @@ void DX12::UpdateMainPassConstantBuffer()
 	MainPassCB.FarZ = 1000.0f;
 	MainPassCB.TotalTime = GameTimer::Get()->TotalTime();
 	MainPassCB.DeltaTime = GameTimer::Get()->DeltaTime();
+	MainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+	MainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	MainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+	MainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	MainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+	MainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	MainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
 	UploadBuffer<PassConstants>* CurPassCB = CurFrameResource->PassCB.get();
 	CurPassCB->CopyData(0, MainPassCB);

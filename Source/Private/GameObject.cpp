@@ -10,7 +10,7 @@ GameObject::~GameObject()
 {
 }
 
-void GameObject::BuildGameObjectGeometry(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
+void GameObject::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
 {
 	int& InstanceCount = Instances[GetName()];
 	InstanceID = InstanceCount;
@@ -50,19 +50,55 @@ void GameObject::BuildPSO(ID3D12Device* Device, const DXGI_FORMAT& BackBufferFor
 
 void GameObject::Update(FrameResource* CurFrameResource)
 {
+	UpdateObjectCB(CurFrameResource);
+	UpdateMaterialCB(CurFrameResource);
+}
+
+void GameObject::UpdateObjectCB(FrameResource* CurFrameResource)
+{
 	UploadBuffer<ObjectConstants>* CurObjectCB = CurFrameResource->ObjectCB.get();
 
 	if (Item->NumFramesDirty > 0)
 	{
 		XMMATRIX World = XMLoadFloat4x4(&Item->World);
-		XMMATRIX TranslatedWorld = XMMatrixTranslation(OffsetX, OffsetY, OffsetZ);
+		XMMATRIX TWorld = XMMatrixMultiply(World, XMMatrixTranslation(OffsetX, OffsetY, OffsetZ));
+		XMMATRIX TRWorld = XMMatrixMultiply(TWorld, XMMatrixRotationRollPitchYaw(Pitch, Yaw, Roll));
+		XMMATRIX TRSWorld = XMMatrixMultiply(TRWorld, XMMatrixScaling(ScaleX, ScaleY, ScaleZ));
+
+		XMMATRIX TexTransform = XMLoadFloat4x4(&Item->TexTransform);
 
 		ObjectConstants ObjConstants;
-		XMStoreFloat4x4(&ObjConstants.World, XMMatrixTranspose(TranslatedWorld));
+		XMStoreFloat4x4(&ObjConstants.World, XMMatrixTranspose(TRSWorld));
+		XMStoreFloat4x4(&ObjConstants.TexTransform, XMMatrixTranspose(TexTransform));
 
 		CurObjectCB->CopyData(Item->ObjCBIndex, ObjConstants);
 
-		Item->NumFramesDirty--;
+		--Item->NumFramesDirty;
+	}
+}
+
+void GameObject::UpdateMaterialCB(FrameResource* CurFrameResource)
+{
+	if (nullptr == Mat)
+	{
+		return;
+	}
+
+	UploadBuffer<MaterialConstants>* CurMaterialCB = CurFrameResource->MaterialCB.get();
+
+	if (Mat->NumFramesDirty > 0)
+	{
+		XMMATRIX MatTransform = XMLoadFloat4x4(&Mat->MatTransform);
+
+		MaterialConstants MatConstants;
+		MatConstants.DiffuseAlbedo = Mat->DiffuseAlbedo;
+		MatConstants.FresnelR0 = Mat->FresnelR0;
+		MatConstants.Roughness = Mat->Roughness;
+		XMStoreFloat4x4(&MatConstants.MatTransform, XMMatrixTranspose(MatTransform));
+
+		CurMaterialCB->CopyData(Mat->MatCBIndex, MatConstants);
+
+		--Mat->NumFramesDirty;
 	}
 }
 
@@ -71,6 +107,20 @@ void GameObject::Translate(float Dx, float Dy, float Dz)
 	OffsetX = Dx;
 	OffsetY = Dy;
 	OffsetZ = Dz;
+}
+
+void GameObject::Rotate(float Dx, float Dy, float Dz)
+{
+	Pitch = Dx;
+	Yaw = Dy;
+	Roll = Dz;
+}
+
+void GameObject::Scale(float Dx, float Dy, float Dz)
+{
+	ScaleX = Dx;
+	ScaleY = Dy;
+	ScaleZ = Dz;
 }
 
 RenderItem* GameObject::GetItem() const
@@ -97,4 +147,9 @@ int GameObject::GetVertexCount() const
 std::string GameObject::GetName() const
 {
     return Geometry->Name;
+}
+
+Texture* GameObject::GetTexture() const
+{
+	return Tex.get();
 }

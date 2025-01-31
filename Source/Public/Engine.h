@@ -6,6 +6,7 @@
 
 class WindowManager;
 class GameTimer;
+class FbxLoader;
 class DX12;
 class GameObject;
 class Camera;
@@ -33,6 +34,7 @@ private:
 	void InitGameObjects();
 	bool InitGraphics();
 	void InitTimer();
+	void InitLoader();
 	void InitCamera();
 
 private:
@@ -40,8 +42,9 @@ private:
 
 	std::unique_ptr<WindowManager> WindowMgr;
 
-	std::vector<std::unique_ptr<GameObject>> StaticGameObjects;
-	std::vector<std::unique_ptr<GameObject>> DynamicGameObjects;
+	std::vector<std::unique_ptr<GameObject>> GameObjects;
+
+	std::unique_ptr<FbxLoader> Loader;
 
 	std::unique_ptr<DX12> Graphics;
 
