@@ -61,6 +61,9 @@ public:
 	DirectX::XMFLOAT4X4 GetView4x4f()const;
 	DirectX::XMFLOAT4X4 GetProj4x4f()const;
 
+	DirectX::BoundingFrustum GetCameraFrustum() const;
+	void SetCameraFrustum(const DirectX::BoundingFrustum& InFrustum);
+
 	// Strafe/Walk the camera a distance d.
 	void Strafe(float d);
 	void Walk(float d);
@@ -94,6 +97,8 @@ private:
 	// Cache View/Proj matrices.
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+
+	DirectX::BoundingFrustum mCamFrustum;
 };
 
 #endif // CAMERA_H

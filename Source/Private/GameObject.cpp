@@ -1,8 +1,10 @@
 #include "GameObject.h"
+#include "Framework/Camera.h"
+#include "Window.h"
 
-std::unordered_map<std::string, int> GameObject::Instances;
-
-GameObject::GameObject()
+GameObject::GameObject(Camera* InCamera)
+	:
+	MainCamera(InCamera)
 {
 }
 
@@ -12,9 +14,6 @@ GameObject::~GameObject()
 
 void GameObject::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
 {
-	int& InstanceCount = Instances[GetName()];
-	InstanceID = InstanceCount;
-	++InstanceCount;
 }
 
 void GameObject::BuildPSO(ID3D12Device* Device, const DXGI_FORMAT& BackBufferFormat, const DXGI_FORMAT& DepthStencilFormat, bool b4xMsaaState, UINT QualityOf4xMsaa)
@@ -50,53 +49,66 @@ void GameObject::BuildPSO(ID3D12Device* Device, const DXGI_FORMAT& BackBufferFor
 
 void GameObject::Update(FrameResource* CurFrameResource)
 {
-	UpdateObjectCB(CurFrameResource);
-	UpdateMaterialCB(CurFrameResource);
+	UpdateInstanceData(CurFrameResource);
+	UpdateMaterialBuffer(CurFrameResource);
 }
 
-void GameObject::UpdateObjectCB(FrameResource* CurFrameResource)
+void GameObject::UpdateInstanceData(FrameResource* CurFrameResource)
 {
-	UploadBuffer<ObjectConstants>* CurObjectCB = CurFrameResource->ObjectCB.get();
+	XMMATRIX View = MainCamera->GetView();
+	XMMATRIX InvView = XMMatrixInverse(&XMMatrixDeterminant(View), View);
 
-	if (Item->NumFramesDirty > 0)
+	UploadBuffer<InstanceData>* CurInstanceBuffer = CurFrameResource->InstanceBuffer.get();
+
+	int VisibleInstanceCount = 0;
+
+	for (int i = 0; i < Item->Instances.size(); i++)
 	{
-		XMMATRIX World = XMLoadFloat4x4(&Item->World);
-		XMMATRIX TWorld = XMMatrixMultiply(World, XMMatrixTranslation(OffsetX, OffsetY, OffsetZ));
-		XMMATRIX TRWorld = XMMatrixMultiply(TWorld, XMMatrixRotationRollPitchYaw(Pitch, Yaw, Roll));
-		XMMATRIX TRSWorld = XMMatrixMultiply(TRWorld, XMMatrixScaling(ScaleX, ScaleY, ScaleZ));
+		XMMATRIX World = XMLoadFloat4x4(&Item->Instances[i].World);
+		XMMATRIX TexTransform = XMLoadFloat4x4(&Item->Instances[i].TexTransform);
+		XMMATRIX InvWorld = XMMatrixInverse(&XMMatrixDeterminant(World), World);
+		XMMATRIX ViewToLocal = XMMatrixMultiply(InvView, InvWorld);
 
-		XMMATRIX TexTransform = XMLoadFloat4x4(&Item->TexTransform);
+		BoundingFrustum LocalSpaceFrustum;
+		const BoundingFrustum& CamFrustum = MainCamera->GetCameraFrustum();
+		CamFrustum.Transform(LocalSpaceFrustum, ViewToLocal);
 
-		ObjectConstants ObjConstants;
-		XMStoreFloat4x4(&ObjConstants.World, XMMatrixTranspose(TRSWorld));
-		XMStoreFloat4x4(&ObjConstants.TexTransform, XMMatrixTranspose(TexTransform));
+		if (LocalSpaceFrustum.Contains(Item->Bounds) != DirectX::DISJOINT)
+		{
+			InstanceData Data;
+			XMStoreFloat4x4(&Data.World, XMMatrixTranspose(World));
+			XMStoreFloat4x4(&Data.TexTransform, XMMatrixTranspose(TexTransform));
+			Data.MaterialIndex = Item->Instances[i].MaterialIndex;
 
-		CurObjectCB->CopyData(Item->ObjCBIndex, ObjConstants);
-
-		--Item->NumFramesDirty;
+			CurInstanceBuffer->CopyData(Item->InstanceOffset + VisibleInstanceCount, Data);
+			++VisibleInstanceCount;
+		}
 	}
+
+	Item->InstanceCount = VisibleInstanceCount;
+
+	std::wostringstream outs;
+	outs.precision(6);
+	outs << L"보이는 오브젝트: " << Item->InstanceCount << L"    " << L"전체 오브젝트: " << Item->Instances.size();
+
+	WindowManager::Get()->GetFirstWindow()->SetName(outs.str());
 }
 
-void GameObject::UpdateMaterialCB(FrameResource* CurFrameResource)
+void GameObject::UpdateMaterialBuffer(FrameResource* CurFrameResource)
 {
-	if (nullptr == Mat)
-	{
-		return;
-	}
-
-	UploadBuffer<MaterialConstants>* CurMaterialCB = CurFrameResource->MaterialCB.get();
+	UploadBuffer<MaterialData>* CurMaterialBuffer = CurFrameResource->MaterialBuffer.get();
 
 	if (Mat->NumFramesDirty > 0)
 	{
 		XMMATRIX MatTransform = XMLoadFloat4x4(&Mat->MatTransform);
 
-		MaterialConstants MatConstants;
-		MatConstants.DiffuseAlbedo = Mat->DiffuseAlbedo;
-		MatConstants.FresnelR0 = Mat->FresnelR0;
-		MatConstants.Roughness = Mat->Roughness;
-		XMStoreFloat4x4(&MatConstants.MatTransform, XMMatrixTranspose(MatTransform));
+		MaterialData MatData;
+		MatData.DiffuseAlbedo = Mat->DiffuseAlbedo;
+		MatData.FresnelR0 = Mat->FresnelR0;
+		MatData.Roughness = Mat->Roughness;
+		XMStoreFloat4x4(&MatData.MatTransform, XMMatrixTranspose(MatTransform));
 
-		CurMaterialCB->CopyData(Mat->MatCBIndex, MatConstants);
+		CurMaterialBuffer->CopyData(Mat->MatCBIndex, MatData);
 
 		--Mat->NumFramesDirty;
 	}

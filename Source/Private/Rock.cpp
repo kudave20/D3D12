@@ -1,7 +1,9 @@
 #include "Rock.h"
 #include "FbxLoader.h"
 
-Rock::Rock()
+Rock::Rock(Camera* InCamera)
+	:
+	GameObject(InCamera)
 {
 }
 
@@ -12,14 +14,14 @@ Rock::~Rock()
 void Rock::BuildRootSignature(ID3D12Device* Device)
 {
 	CD3DX12_DESCRIPTOR_RANGE TexTable;
-	TexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	TexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 7, 0, 0);
 
 	CD3DX12_ROOT_PARAMETER SlotRootParameter[4];
 
-	SlotRootParameter[0].InitAsDescriptorTable(1, &TexTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	SlotRootParameter[1].InitAsConstantBufferView(0);
-	SlotRootParameter[2].InitAsConstantBufferView(1);
-	SlotRootParameter[3].InitAsConstantBufferView(2);
+	SlotRootParameter[0].InitAsShaderResourceView(0, 1);
+	SlotRootParameter[1].InitAsShaderResourceView(1, 1);
+	SlotRootParameter[2].InitAsConstantBufferView(0);
+	SlotRootParameter[3].InitAsDescriptorTable(1, &TexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> StaticSamplers = GetStaticSamplers();
 
@@ -59,11 +61,28 @@ void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* Comm
 	// FIXME: 머티리얼 여러개 받을 수 있게 해야하지 않나?
 	Mat = std::make_unique<Material>(*Materials[0]);
 
+	XMFLOAT3 Minf3(+MathHelper::Infinity, +MathHelper::Infinity, +MathHelper::Infinity);
+	XMFLOAT3 Maxf3(-MathHelper::Infinity, -MathHelper::Infinity, -MathHelper::Infinity);
+
+	XMVECTOR Min = XMLoadFloat3(&Minf3);
+	XMVECTOR Max = XMLoadFloat3(&Maxf3);
+
 	const std::vector<Vertex>& Vertices = FbxLoader::Get()->GetVertices();
 	const UINT VBByteSize = (UINT)Vertices.size() * sizeof(Vertex);
 
 	const std::vector<uint16_t>& Indices = FbxLoader::Get()->GetIndices();
 	const UINT IBByteSize = (UINT)Indices.size() * sizeof(uint16_t);
+
+	for (size_t i = 0; i < Vertices.size(); ++i)
+	{
+		const XMFLOAT3& P = Vertices[i].Pos;
+		Min = XMVectorMin(Min, XMLoadFloat3(&P));
+		Max = XMVectorMax(Max, XMLoadFloat3(&P));
+	}
+
+	BoundingBox Bounds;
+	XMStoreFloat3(&Bounds.Center, 0.5f * (Min + Max));
+	XMStoreFloat3(&Bounds.Extents, 0.5f * (Max - Min));
 
 	std::unique_ptr<MeshGeometry> Geo = std::make_unique<MeshGeometry>();
 	Geo->Name = "RockGeo";
@@ -86,6 +105,7 @@ void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* Comm
 	Submesh.IndexCount = (UINT)Indices.size();
 	Submesh.StartIndexLocation = 0;
 	Submesh.BaseVertexLocation = 0;
+	Submesh.Bounds = Bounds;
 
 	Geo->DrawArgs["Rock"] = Submesh;
 
@@ -97,8 +117,8 @@ void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* Comm
 
 void Rock::BuildShadersAndInputLayout()
 {
-	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "VSMain", "vs_5_0");
-	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "PSMain", "ps_5_0");
+	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "VSMain", "vs_5_1");
+	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Rock.hlsl", nullptr, "PSMain", "ps_5_1");
 
 	InputLayout =
 	{
@@ -111,15 +131,45 @@ void Rock::BuildShadersAndInputLayout()
 void Rock::BuildRenderItem(int ObjectIndex)
 {
 	std::unique_ptr<RenderItem> RItem = std::make_unique<RenderItem>();
-	RItem->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&RItem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-	RItem->ObjCBIndex = ObjectIndex;
+	RItem->TexTransform = MathHelper::Identity4x4();
 	RItem->Mat = Mat.get();
 	RItem->Geo = Geometry.get();
 	RItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	RItem->InstanceCount = 0;
+	RItem->InstanceOffset = ObjectIndex;
 	RItem->IndexCount = RItem->Geo->DrawArgs["Rock"].IndexCount;
 	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Rock"].StartIndexLocation;
 	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Rock"].BaseVertexLocation;
+	RItem->Bounds = RItem->Geo->DrawArgs["Rock"].Bounds;
+
+	const int N = 5;
+	InstanceCount = N * N;
+	RItem->Instances.resize(InstanceCount + RItem->InstanceOffset);
+
+	float Width = 100.0f;
+	float Depth = 100.0f;
+
+	float X = -0.5f * Width;
+	float Z = -0.5f * Depth;
+	float Dx = Width / (N - 1);
+	float Dz = Depth / (N - 1);
+
+	for (int i = 0; i < N; i++)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			int Index = N * i + j;
+
+			RItem->Instances[Index].World = XMFLOAT4X4(
+				1.0f, 0.0f, 0.0f, 0.0f,
+				0.0f, 1.0f, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				X + i * Dx, 0.0f, Z + j * Dz, 1.0f);
+
+			XMStoreFloat4x4(&RItem->Instances[Index].TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+			RItem->Instances[Index].MaterialIndex = 0;
+		}
+	}
 
 	RenderItemLayer[(int)RenderLayer::Opaque] = RItem.get();
 

@@ -4,7 +4,7 @@
 class Rock : public GameObject
 {
 public:
-	Rock();
+	Rock(Camera* InCamera);
 	virtual ~Rock();
 
 public:

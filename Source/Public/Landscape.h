@@ -5,7 +5,7 @@
 class Landscape : public GameObject
 {
 public:
-	Landscape();
+	Landscape(Camera* InCamera);
 	virtual ~Landscape();
 
 public:

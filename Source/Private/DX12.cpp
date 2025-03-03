@@ -275,6 +275,10 @@ void DX12::OnResize()
 	XMStoreFloat4x4(&Proj, P);
 
 	MainCamera->SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+
+	BoundingFrustum CamFrustum;
+	BoundingFrustum::CreateFromMatrix(CamFrustum, MainCamera->GetProj());
+	MainCamera->SetCameraFrustum(CamFrustum);
 }
 
 void DX12::Toggle4xMsaaState()
@@ -459,8 +463,8 @@ void DX12::BuildFrameResources()
 			std::make_unique<FrameResource>(
 				D3DDevice.Get(),
 				1,
-				(UINT)GameObjects.size(),
-				1)
+				20,
+				2)
 		);
 	}
 }
@@ -526,13 +530,8 @@ float DX12::GetRadius() const
 
 void DX12::DrawItems()
 {
+	ID3D12Resource* MatBuffer = CurFrameResource->MaterialBuffer->Resource();
 	ID3D12Resource* PassCB = CurFrameResource->PassCB->Resource();
-
-	UINT ObjCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	ID3D12Resource* ObjectCB = CurFrameResource->ObjectCB->Resource();
-
-	UINT MatCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
-	ID3D12Resource* MatCB = CurFrameResource->MaterialCB->Resource();
 
 	for (GameObject* GameObject : GameObjects)
 	{
@@ -558,15 +557,14 @@ void DX12::DrawItems()
 			CD3DX12_GPU_DESCRIPTOR_HANDLE Tex(SRVHeap->GetGPUDescriptorHandleForHeapStart());
 			Tex.Offset(Item->Mat->DiffuseSrvHeapIndex, CBVSRVDescriptorSize);
 
-			D3D12_GPU_VIRTUAL_ADDRESS ObjCBAddress = ObjectCB->GetGPUVirtualAddress() + Item->ObjCBIndex * ObjCBByteSize;
-			D3D12_GPU_VIRTUAL_ADDRESS MatCBAddress = MatCB->GetGPUVirtualAddress() + Item->Mat->MatCBIndex * MatCBByteSize;
+			ID3D12Resource* InstanceBuffer = CurFrameResource->InstanceBuffer->Resource();
 
-			CommandList->SetGraphicsRootDescriptorTable(0, Tex);
-			CommandList->SetGraphicsRootConstantBufferView(1, ObjCBAddress);
+			CommandList->SetGraphicsRootShaderResourceView(0, InstanceBuffer->GetGPUVirtualAddress());
+			CommandList->SetGraphicsRootShaderResourceView(1, MatBuffer->GetGPUVirtualAddress());
 			CommandList->SetGraphicsRootConstantBufferView(2, PassCB->GetGPUVirtualAddress());
-			CommandList->SetGraphicsRootConstantBufferView(3, MatCB->GetGPUVirtualAddress());
+			CommandList->SetGraphicsRootDescriptorTable(3, SRVHeap->GetGPUDescriptorHandleForHeapStart());
 
-			CommandList->DrawIndexedInstanced(Item->IndexCount, 1, Item->StartIndexLocation, Item->BaseVertexLocation, 0);
+			CommandList->DrawIndexedInstanced(Item->IndexCount, Item->InstanceCount, Item->StartIndexLocation, Item->BaseVertexLocation, Item->InstanceOffset);
 		}
 	}
 }

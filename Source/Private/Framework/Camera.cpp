@@ -176,6 +176,16 @@ XMFLOAT4X4 Camera::GetProj4x4f()const
 	return mProj;
 }
 
+BoundingFrustum Camera::GetCameraFrustum() const
+{
+	return mCamFrustum;
+}
+
+void Camera::SetCameraFrustum(const DirectX::BoundingFrustum& InFrustum)
+{
+	mCamFrustum = InFrustum;
+}
+
 void Camera::Strafe(float d)
 {
 	// mPosition += d*mRight

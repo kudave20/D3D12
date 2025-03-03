@@ -176,10 +176,10 @@ bool Engine::InitWindow()
 
 void Engine::InitGameObjects()
 {
-	std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>();
+	std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>(MainCamera.get());
 	GameObjects.push_back(std::move(LandScapeGO));
 
-	std::unique_ptr<Rock> RockGO = std::make_unique<Rock>();
+	std::unique_ptr<Rock> RockGO = std::make_unique<Rock>(MainCamera.get());
 	RockGO->Scale(3.0f, 3.0f, 3.0f);
 	GameObjects.push_back(std::move(RockGO));
 }

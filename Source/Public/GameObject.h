@@ -12,25 +12,29 @@ using namespace DirectX;
 struct MeshGeometry;
 
 class MathHelper;
+class Camera;
 
 struct RenderItem
 {
 	RenderItem() = default;
 	RenderItem(const RenderItem& Rhs) = delete;
 
-	XMFLOAT4X4 World = MathHelper::Identity4x4();
 	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
 	int NumFramesDirty = gNumFrameResources;
-
-	UINT ObjCBIndex = -1;
 
 	Material* Mat = nullptr;
 	MeshGeometry* Geo = nullptr;
 
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
+	BoundingBox Bounds;
+	std::vector<InstanceData> Instances;
+
+	int InstanceOffset = 0;
+
 	UINT IndexCount = 0;
+	UINT InstanceCount = 0;
 	UINT StartIndexLocation = 0;
 	int BaseVertexLocation = 0;
 };
@@ -38,7 +42,7 @@ struct RenderItem
 class GameObject
 {
 public:
-	GameObject();
+	GameObject(Camera* InCamera);
 	virtual ~GameObject();
 
 public:
@@ -56,8 +60,8 @@ public:
 	virtual void Update(FrameResource* CurFrameResource);
 
 private:
-	void UpdateObjectCB(FrameResource* CurFrameResource);
-	void UpdateMaterialCB(FrameResource* CurFrameResource);
+	void UpdateInstanceData(FrameResource* CurFrameResource);
+	void UpdateMaterialBuffer(FrameResource* CurFrameResource);
 
 public:
 	virtual void Translate(float Dx, float Dy, float Dz);
@@ -70,12 +74,7 @@ public:
 	ID3D12PipelineState* GetPSO(const std::string& Key) const;
 	int GetVertexCount() const;
 	std::string GetName() const;
-	bool UseMaterial() const;
 	Texture* GetTexture() const;
-
-protected:
-	// FIXME: 다른데 놔두는게 좋지 않을까.
-	static std::unordered_map<std::string, int> Instances;
 
 protected:
 	ComPtr<ID3DBlob> VSByteCode;
@@ -95,9 +94,11 @@ protected:
 
 	int VertexCount = 0;
 
+	int InstanceCount = 0;
+
 	RenderItem* RenderItemLayer[(int)RenderLayer::Count] = { nullptr };
 
-	int InstanceID = 0;
+	Camera* MainCamera = nullptr;
 
 protected:
 	float OffsetX = 0.0f;

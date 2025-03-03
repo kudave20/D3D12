@@ -228,7 +228,7 @@ HINSTANCE Window::HInst = nullptr;
 Window::~Window()
 {
 	DestroyWindow(HWnd);
-	UnregisterClass(WndName, GetInstance());
+	UnregisterClass(WndName.c_str(), GetInstance());
 }
 
 void Window::OnPointerDown(WPARAM State, int X, int Y)
@@ -271,7 +271,7 @@ bool Window::Init(int InWidth, int InHeight, Camera* InCamera)
 	Wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	Wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
 	Wc.lpszMenuName = nullptr;
-	Wc.lpszClassName = WndName;
+	Wc.lpszClassName = WndName.c_str();
 
 	if (false == RegisterClass(&Wc))
 	{
@@ -284,8 +284,8 @@ bool Window::Init(int InWidth, int InHeight, Camera* InCamera)
 	Height = R.bottom - R.top;
 
 	HWnd = CreateWindow(
-		WndName,
-		WndName,
+		WndName.c_str(),
+		WndName.c_str(),
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT,
 		CW_USEDEFAULT,
@@ -374,7 +374,12 @@ const HWND Window::GetWindow() const
 	return HWnd;
 }
 
-const wchar_t* Window::GetName() const
+const wstring Window::GetName() const
 {
 	return WndName;
+}
+
+void Window::SetName(const wstring InName)
+{
+	WndName = InName;
 }

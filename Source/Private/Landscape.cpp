@@ -3,7 +3,9 @@
 #include "Framework/GeometryGenerator.h"
 #include "Framework/d3dUtil.h"
 
-Landscape::Landscape()
+Landscape::Landscape(Camera* InCamera)
+	:
+	GameObject(InCamera)
 {
 }
 
@@ -14,14 +16,14 @@ Landscape::~Landscape()
 void Landscape::BuildRootSignature(ID3D12Device* Device)
 {
 	CD3DX12_DESCRIPTOR_RANGE TexTable;
-	TexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	TexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 7, 0, 0);
 
 	CD3DX12_ROOT_PARAMETER SlotRootParameter[4];
 
-	SlotRootParameter[0].InitAsDescriptorTable(1, &TexTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	SlotRootParameter[1].InitAsConstantBufferView(0);
-	SlotRootParameter[2].InitAsConstantBufferView(1);
-	SlotRootParameter[3].InitAsConstantBufferView(2);
+	SlotRootParameter[0].InitAsShaderResourceView(0, 1);
+	SlotRootParameter[1].InitAsShaderResourceView(1, 1);
+	SlotRootParameter[2].InitAsConstantBufferView(0);
+	SlotRootParameter[3].InitAsDescriptorTable(1, &TexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> StaticSamplers = GetStaticSamplers();
 
@@ -63,6 +65,12 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 	Tex->Name = "LandTex";
 	ThrowIfFailed(CreateDDSTextureFromFile12(Device, CommandList, Tex->Filename.c_str(), Tex->Resource, Tex->UploadHeap));
 
+	XMFLOAT3 Minf3(+MathHelper::Infinity, +MathHelper::Infinity, +MathHelper::Infinity);
+	XMFLOAT3 Maxf3(-MathHelper::Infinity, -MathHelper::Infinity, -MathHelper::Infinity);
+
+	XMVECTOR Min = XMLoadFloat3(&Minf3);
+	XMVECTOR Max = XMLoadFloat3(&Maxf3);
+
 	std::vector<Vertex> Vertices(Grid.Vertices.size());
 	for (size_t i = 0; i < Grid.Vertices.size(); ++i)
 	{
@@ -72,7 +80,14 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 		Vertices[i].Normal = Grid.Vertices[i].Normal;
 		Vertices[i].TexCoord.x = Grid.Vertices[i].TexC.x * 10.0f;
 		Vertices[i].TexCoord.y = Grid.Vertices[i].TexC.y * 10.0f;
+
+		Min = XMVectorMin(Min, XMLoadFloat3(&P));
+		Max = XMVectorMax(Max, XMLoadFloat3(&P));
 	}
+
+	BoundingBox Bounds;
+	XMStoreFloat3(&Bounds.Center, 0.5f * (Min + Max));
+	XMStoreFloat3(&Bounds.Extents, 0.5f * (Max - Min));
 
 	VertexCount = (int)Grid.Vertices.size();
 
@@ -102,6 +117,7 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 	Submesh.IndexCount = (UINT)Indices.size();
 	Submesh.StartIndexLocation = 0;
 	Submesh.BaseVertexLocation = 0;
+	Submesh.Bounds = Bounds;
 
 	Geo->DrawArgs["Grid"] = Submesh;
 
@@ -113,8 +129,8 @@ void Landscape::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList*
 
 void Landscape::BuildShadersAndInputLayout()
 {
-	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "VSMain", "vs_5_0");
-	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "PSMain", "ps_5_0");
+	VSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "VSMain", "vs_5_1");
+	PSByteCode = d3dUtil::CompileShader(L"Source/Shader/Landscape.hlsl", nullptr, "PSMain", "ps_5_1");
 
 	InputLayout =
 	{
@@ -127,14 +143,20 @@ void Landscape::BuildShadersAndInputLayout()
 void Landscape::BuildRenderItem(int ObjectIndex)
 {
 	std::unique_ptr<RenderItem> RItem = std::make_unique<RenderItem>();
-	RItem->World = MathHelper::Identity4x4();
-	RItem->ObjCBIndex = ObjectIndex;
+	RItem->TexTransform = MathHelper::Identity4x4();
 	RItem->Mat = Mat.get();
 	RItem->Geo = Geometry.get();
 	RItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	RItem->InstanceCount = 0;
+	RItem->InstanceOffset = ObjectIndex;
 	RItem->IndexCount = RItem->Geo->DrawArgs["Grid"].IndexCount;
 	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Grid"].StartIndexLocation;
 	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Grid"].BaseVertexLocation;
+	RItem->Bounds = RItem->Geo->DrawArgs["Grid"].Bounds;
+
+	RItem->Instances.resize(1 + RItem->InstanceOffset);
+	XMStoreFloat4x4(&RItem->Instances[0].TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+	RItem->Instances[0].MaterialIndex = 0;
 
 	RenderItemLayer[(int)RenderLayer::Opaque] = RItem.get();
 

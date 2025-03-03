@@ -99,7 +99,7 @@
     </Link>
     <FxCompile>
       <EntryPointName>VSMain</EntryPointName>
-      <ShaderModel>5.0</ShaderModel>
+      <ShaderModel>5.1</ShaderModel>
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -124,7 +124,7 @@
     </Link>
     <FxCompile>
       <EntryPointName>VSMain</EntryPointName>
-      <ShaderModel>5.0</ShaderModel>
+      <ShaderModel>5.1</ShaderModel>
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -145,7 +145,7 @@
     </Link>
     <FxCompile>
       <EntryPointName>VSMain</EntryPointName>
-      <ShaderModel>5.0</ShaderModel>
+      <ShaderModel>5.1</ShaderModel>
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -170,13 +170,18 @@
     </Link>
     <FxCompile>
       <EntryPointName>VSMain</EntryPointName>
-      <ShaderModel>5.0</ShaderModel>
+      <ShaderModel>5.1</ShaderModel>
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <FxCompile Include="Source\Shader\Landscape.hlsl" />
-    <FxCompile Include="Source\Shader\Rock.hlsl" />
+    <FxCompile Include="Source\Shader\Rock.hlsl">
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">5.1</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.1</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.1</ShaderModel>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Private\DX12.cpp" />

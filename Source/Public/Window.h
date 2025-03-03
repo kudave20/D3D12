@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <string>
 #include <vector>
 #include <memory>
 
@@ -42,7 +43,10 @@ public:
 public:
 	static HINSTANCE GetInstance();
 	const HWND GetWindow() const;
-	const wchar_t* GetName() const;
+	const std::wstring GetName() const;
+
+public:
+	void SetName(const std::wstring InName);
 
 private:
 	static HINSTANCE HInst;
@@ -53,7 +57,7 @@ private:
 
 	Camera* MainCamera = nullptr;
 
-	const wchar_t* WndName = L"그래픽스 엔진";
+	std::wstring WndName = L"그래픽스 엔진";
 
 	bool bMinimized = false;
 	bool bMaximized = false;

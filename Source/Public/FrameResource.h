@@ -3,7 +3,6 @@
 #include "Framework/d3dUtil.h"
 #include "Framework/MathHelper.h"
 #include "Framework/UploadBuffer.h"
-#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -11,10 +10,28 @@ using namespace DirectX;
 
 class GameObject;
 
-struct ObjectConstants
+struct InstanceData
 {
     XMFLOAT4X4 World = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    UINT MaterialIndex;
+    UINT InstancePad0;
+    UINT InstancePad1;
+    UINT InstancePad2;
+};
+
+struct MaterialData
+{
+    XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+    XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+    float Roughness = 64.0f;
+
+    XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+
+    UINT DiffuseMapIndex = 0;
+    UINT MaterialPad0;
+    UINT MaterialPad1;
+    UINT MaterialPad2;
 };
 
 struct PassConstants
@@ -95,7 +112,7 @@ namespace std
 struct FrameResource
 {
 public:
-    FrameResource(ID3D12Device* Device, UINT PassCount, UINT ObjectCount, UINT MaterialCount);
+    FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInstanceCount, UINT MaterialCount);
     FrameResource(const FrameResource& Rhs) = delete;
     FrameResource& operator=(const FrameResource& Rhs) = delete;
     ~FrameResource();
@@ -103,8 +120,8 @@ public:
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CmdListAlloc;
 
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
-    std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
-    std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+    std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
+    std::unique_ptr<UploadBuffer<InstanceData>> InstanceBuffer = nullptr;
 
     UINT64 Fence = 0;
 };
