@@ -1,7 +1,7 @@
 #include "FrameResource.h"
 #include "GameObject.h"
 
-FrameResource::FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInstanceCount, UINT MaterialCount)
+FrameResource::FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInstanceCount, UINT MaterialCount, UINT MaxAnimationCount)
 {
     ThrowIfFailed(Device->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT,
@@ -10,6 +10,7 @@ FrameResource::FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInsta
     PassCB = std::make_unique<UploadBuffer<PassConstants>>(Device, PassCount, true);
     MaterialBuffer = std::make_unique<UploadBuffer<MaterialData>>(Device, MaterialCount, false);
     InstanceBuffer = std::make_unique<UploadBuffer<InstanceData>>(Device, MaxInstanceCount, false);
+    AnimationBuffer = std::make_unique<UploadBuffer<AnimationData>>(Device, MaxAnimationCount, false);
 }
 
 FrameResource::~FrameResource()

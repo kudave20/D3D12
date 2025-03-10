@@ -7,6 +7,7 @@ Landscape::Landscape(Camera* InCamera)
 	:
 	GameObject(InCamera)
 {
+	bUseAnimation = false;
 }
 
 Landscape::~Landscape()
@@ -140,7 +141,7 @@ void Landscape::BuildShadersAndInputLayout()
 	};
 }
 
-void Landscape::BuildRenderItem(int ObjectIndex)
+void Landscape::BuildRenderItem(int& InstanceOffset, std::vector<std::unique_ptr<FrameResource>>& FrameResources)
 {
 	std::unique_ptr<RenderItem> RItem = std::make_unique<RenderItem>();
 	RItem->TexTransform = MathHelper::Identity4x4();
@@ -148,19 +149,30 @@ void Landscape::BuildRenderItem(int ObjectIndex)
 	RItem->Geo = Geometry.get();
 	RItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	RItem->InstanceCount = 0;
-	RItem->InstanceOffset = ObjectIndex;
+	RItem->InstanceOffset = InstanceOffset;
 	RItem->IndexCount = RItem->Geo->DrawArgs["Grid"].IndexCount;
 	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Grid"].StartIndexLocation;
 	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Grid"].BaseVertexLocation;
 	RItem->Bounds = RItem->Geo->DrawArgs["Grid"].Bounds;
 
-	RItem->Instances.resize(1 + RItem->InstanceOffset);
+	RItem->Instances.resize(1);
+	RItem->Instances[0].World = XMFLOAT4X4(
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		100.0f, 0.0f, 100.0f, 1.0f
+	);
 	XMStoreFloat4x4(&RItem->Instances[0].TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
 	RItem->Instances[0].MaterialIndex = 0;
 
 	RenderItemLayer[(int)RenderLayer::Opaque] = RItem.get();
 
 	Item = std::move(RItem);
+
+	++InstanceOffset;
+
+	// 순서 바꾸면 안됨
+	GameObject::BuildRenderItem(InstanceOffset, FrameResources);
 }
 
 float Landscape::GetFloorHeight(float X, float Z)

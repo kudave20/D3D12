@@ -30,6 +30,7 @@ struct RenderItem
 
 	BoundingBox Bounds;
 	std::vector<InstanceData> Instances;
+	std::vector<AnimationData> Animations;
 
 	int InstanceOffset = 0;
 
@@ -49,7 +50,7 @@ public:
 	virtual void BuildRootSignature(ID3D12Device* Device) = 0;
 	virtual void BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList);
 	virtual void BuildShadersAndInputLayout() = 0;
-	virtual void BuildRenderItem(int ObjectIndex) = 0;
+	virtual void BuildRenderItem(int& InstanceOffset, std::vector<std::unique_ptr<FrameResource>>& FrameResources);
 	virtual void BuildPSO(ID3D12Device* Device,
 		const DXGI_FORMAT& BackBufferFormat,
 		const DXGI_FORMAT& DepthStencilFormat,
@@ -75,6 +76,7 @@ public:
 	int GetVertexCount() const;
 	std::string GetName() const;
 	Texture* GetTexture() const;
+	bool UseAnimation() const;
 
 protected:
 	ComPtr<ID3DBlob> VSByteCode;
@@ -99,6 +101,8 @@ protected:
 	RenderItem* RenderItemLayer[(int)RenderLayer::Count] = { nullptr };
 
 	Camera* MainCamera = nullptr;
+
+	bool bUseAnimation = false;
 
 protected:
 	float OffsetX = 0.0f;

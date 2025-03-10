@@ -9,6 +9,7 @@
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>
+#include "fbxsdk.h"
 
 class MathHelper
 {
@@ -91,6 +92,12 @@ public:
 
     static DirectX::XMVECTOR RandUnitVec3();
     static DirectX::XMVECTOR RandHemisphereUnitVec3(DirectX::XMVECTOR n);
+
+	static DirectX::XMFLOAT4 Fbx4ToXM4(const fbxsdk::FbxVector4& Fbx);
+	static DirectX::XMFLOAT3 Fbx4ToXM3(const fbxsdk::FbxVector4& Fbx);
+	static DirectX::XMFLOAT2 Fbx2ToXM2(const fbxsdk::FbxVector2& Fbx);
+
+	static DirectX::XMFLOAT4 QuatToXM4(const fbxsdk::FbxQuaternion& Fbx);
 
 	static const float Infinity;
 	static const float Pi;

@@ -3,6 +3,7 @@
 #include "Framework/d3dUtil.h"
 #include "Framework/MathHelper.h"
 #include "Framework/UploadBuffer.h"
+#include "fbxsdk.h"
 #include <string>
 #include <vector>
 
@@ -34,6 +35,11 @@ struct MaterialData
     UINT MaterialPad2;
 };
 
+struct AnimationData
+{
+    XMFLOAT4X4 FinalTransform = MathHelper::Identity4x4();
+};
+
 struct PassConstants
 {
     XMFLOAT4X4 View = MathHelper::Identity4x4();
@@ -49,7 +55,11 @@ struct PassConstants
     float NearZ = 0.0f;
     float FarZ = 0.0f;
     float TotalTime = 0.0f;
-    float DeltaTime = 0.0f;
+    float DeltaTime = 0.0f; 
+    float Frame = 0.0f;
+    float BoneCount = 0.0f;
+    float Pad0 = 0.0f;
+    float Pad1 = 0.0f;
     XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     Light Lights[MaxLights];
@@ -60,12 +70,17 @@ struct Vertex
     XMFLOAT3 Pos;
     XMFLOAT3 Normal;
     XMFLOAT2 TexCoord;
+    XMFLOAT4 BoneWeights;
+    BYTE BoneIndices[4];
 
     bool operator==(const Vertex& Rhs) const
     {
-        return (Pos.x == Rhs.Pos.x) && (Pos.y == Rhs.Pos.y) && (Pos.z == Rhs.Pos.z)
+        return (Pos.x == Rhs.Pos.x) && (Pos.y == Rhs.Pos.y) && (Pos.z == Rhs.Pos.z);
+
+        /*return (Pos.x == Rhs.Pos.x) && (Pos.y == Rhs.Pos.y) && (Pos.z == Rhs.Pos.z)
             && (Normal.x == Rhs.Normal.x) && (Normal.y == Rhs.Normal.y) && (Normal.z == Rhs.Normal.z)
-            && (TexCoord.x == Rhs.TexCoord.x) && (TexCoord.y == Rhs.TexCoord.y);
+            && (TexCoord.x == Rhs.TexCoord.x) && (TexCoord.y == Rhs.TexCoord.y)
+            && (BoneIndex == Rhs.BoneIndex);*/
     }
 };
 
@@ -102,9 +117,10 @@ namespace std
         size_t operator()(const Vertex& V) const
         {
             size_t XHash = std::hash<XMFLOAT3>()(V.Pos);
-            size_t YHash = std::hash<XMFLOAT3>()(V.Normal) << 1;
+            /*size_t YHash = std::hash<XMFLOAT3>()(V.Normal) << 1;
             size_t ZHash = std::hash<XMFLOAT2>()(V.TexCoord) << 1;
-            return ((XHash ^ YHash) >> 1) ^ ZHash;
+            return ((XHash ^ YHash) >> 1) ^ ZHash;*/
+            return XHash;
         }
     };
 }
@@ -112,7 +128,7 @@ namespace std
 struct FrameResource
 {
 public:
-    FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInstanceCount, UINT MaterialCount);
+    FrameResource(ID3D12Device* Device, UINT PassCount, UINT MaxInstanceCount, UINT MaterialCount, UINT MaxAnimationCount);
     FrameResource(const FrameResource& Rhs) = delete;
     FrameResource& operator=(const FrameResource& Rhs) = delete;
     ~FrameResource();
@@ -122,6 +138,7 @@ public:
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstanceBuffer = nullptr;
+    std::unique_ptr<UploadBuffer<AnimationData>> AnimationBuffer = nullptr;
 
     UINT64 Fence = 0;
 };

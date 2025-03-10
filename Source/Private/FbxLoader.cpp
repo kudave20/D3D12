@@ -1,5 +1,7 @@
 #include "FbxLoader.h"
 #include <cassert>
+#include <queue>
+#include "Framework/MathHelper.h"
 
 FbxLoader* FbxLoader::Loader = nullptr;
 
@@ -24,21 +26,21 @@ void FbxLoader::Init()
 
 	IOSettings = FbxIOSettings::Create(Manager, IOSROOT);
 	Manager->SetIOSettings(IOSettings);
-
-	Importer = FbxImporter::Create(Manager, "");
 }
 
-bool FbxLoader::Load(const char* FilePath)
+bool FbxLoader::Load(const char* FilePath, const std::string& Name)
 {
+	Importer = FbxImporter::Create(Manager, "");
+
 	if (false == Importer->Initialize(FilePath, -1, Manager->GetIOSettings()))
 	{
 		return false;
 	}
 
-	Textures.clear();
-	Materials.clear();
-	Vertices.clear();
-	Indices.clear();
+	Textures[Name].clear();
+	Materials[Name].clear();
+	Vertices[Name].clear();
+	Indices[Name].clear();
 
 	FbxScene* Scene = FbxScene::Create(Manager, "My Scene");
 	Importer->Import(Scene);
@@ -49,14 +51,15 @@ bool FbxLoader::Load(const char* FilePath)
 	FbxGeometryConverter Converter(Manager);
 	Converter.Triangulate(Scene, true);
 
-	LoadTexture(FilePath, Scene);
-	LoadMaterial(Scene);
-	LoadMesh(Scene);
+	LoadTexture(FilePath, Scene, Name);
+	LoadMaterial(Scene, Name);
+	FbxMesh* Mesh = LoadMesh(Scene, Name);
+	LoadAnimation(Scene, Name, Mesh);
 
 	return true;
 }
 
-void FbxLoader::LoadTexture(const char* FilePath, FbxScene* Scene)
+void FbxLoader::LoadTexture(const char* FilePath, FbxScene* Scene, const std::string& Name)
 {
 	int TextureCount = Scene->GetTextureCount();
 	for (int i = 0; i < TextureCount; ++i)
@@ -66,11 +69,11 @@ void FbxLoader::LoadTexture(const char* FilePath, FbxScene* Scene)
 		Data->Name = Tex->GetName();
 		Data->Filename = ConvertToTextureName(FilePath, Data->Name);
 		Data->Index = (int)Textures.size();
-		Textures.push_back(std::move(Data));
+		Textures[Name].push_back(std::move(Data));
 	}
 }
 
-void FbxLoader::LoadMaterial(FbxScene* Scene)
+void FbxLoader::LoadMaterial(FbxScene* Scene, const std::string& Name)
 {
 	int MaterialCount = Scene->GetMaterialCount();
 
@@ -86,7 +89,7 @@ void FbxLoader::LoadMaterial(FbxScene* Scene)
 		if (Tex)
 		{
 			// FIXME: unordered_map 쓰는게 나을지도..
-			Mat->DiffuseSrvHeapIndex = Textures[i]->Index;
+			Mat->DiffuseSrvHeapIndex = Textures[Name][i]->Index;
 		}
 		else
 		{
@@ -96,7 +99,7 @@ void FbxLoader::LoadMaterial(FbxScene* Scene)
 		if (ClassID.Is(FbxSurfacePhong::ClassId))
 		{
 			FbxSurfacePhong* Phong = (FbxSurfacePhong*)(SurfaceMaterial);
-			XMFLOAT3 DiffuseColor = Fbx4ToXM3(Phong->Diffuse.Get());
+			XMFLOAT3 DiffuseColor = MathHelper::Fbx4ToXM3(Phong->Diffuse.Get());
 
 			Mat->DiffuseAlbedo = XMFLOAT4(DiffuseColor.x, DiffuseColor.y, DiffuseColor.z, 1.0f);
 			Mat->Name = Phong->GetName();
@@ -104,7 +107,7 @@ void FbxLoader::LoadMaterial(FbxScene* Scene)
 		else if (ClassID.Is(FbxSurfaceLambert::ClassId))
 		{
 			FbxSurfaceLambert* Lambert = (FbxSurfaceLambert*)(SurfaceMaterial);
-			XMFLOAT3 DiffuseColor = Fbx4ToXM3(Lambert->Diffuse.Get());
+			XMFLOAT3 DiffuseColor = MathHelper::Fbx4ToXM3(Lambert->Diffuse.Get());
 
 			Mat->DiffuseAlbedo = XMFLOAT4(DiffuseColor.x, DiffuseColor.y, DiffuseColor.z, 1.0f);
 			Mat->Name = Lambert->GetName();
@@ -116,22 +119,111 @@ void FbxLoader::LoadMaterial(FbxScene* Scene)
 		Mat->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 		Mat->Roughness = 0.3f;
 
-		Materials.push_back(std::move(Mat));
+		Materials[Name].push_back(std::move(Mat));
 	}
 }
 
-bool FbxLoader::LoadMesh(FbxScene* Scene)
+FbxMesh* FbxLoader::LoadMesh(FbxScene* Scene, const std::string& Name)
 {
 	FbxNode* RootNode = Scene->GetRootNode();
 	FbxMesh* Mesh = nullptr;
 	if (false == FindMesh(RootNode, Mesh))
 	{
-		return false;
+		return nullptr;
 	}
 
-	ProcessPolygon(Mesh);
+	ProcessPolygon(Mesh, Name);
 
-	return true;
+	return Mesh;
+}
+
+void FbxLoader::LoadAnimation(FbxScene* Scene, const std::string& Name, FbxMesh* Mesh)
+{
+	FbxAnimStack* AnimStack = Scene->GetSrcObject<FbxAnimStack>(0);
+	if (nullptr == AnimStack)
+	{
+		return;
+	}
+
+	FbxString AnimStackName = AnimStack->GetName();
+
+	FbxSkin* Skin = reinterpret_cast<FbxSkin*>(Mesh->GetDeformer(0, FbxDeformer::eSkin));
+	int BoneCount = Skin->GetClusterCount();
+	BoneCounts[Name] = BoneCount;
+
+	FbxAMatrix GeometryTransform = GetGeometryTransformation(Mesh->GetNode());
+
+	for (int i = 0; i < BoneCount; i++)
+	{
+		FbxCluster* Cluster = Skin->GetCluster(i);
+		int* VertexList = Cluster->GetControlPointIndices();
+		int VertexCount = Cluster->GetControlPointIndicesCount();
+		for (int j = 0; j < VertexCount; j++)
+		{
+			const FbxVector4& Pos = Mesh->GetControlPointAt(VertexList[j]);
+
+			// FIXME: 어차피 Vertex끼리 비교할 때 Pos만 비교하니까 이렇게 했다.
+			Vertex Vertex;
+			Vertex.Pos = MathHelper::Fbx4ToXM3(Pos);
+
+			uint16_t Index = IndexMap[Vertex];
+			for (int k = 0; k < 4; k++)
+			{
+				// FIXME: 255번째 Bone이 있으면 망한다.
+				if (Vertices[Name][Index].BoneIndices[k] == 255)
+				{
+					Vertices[Name][Index].BoneIndices[k] = i;
+					float BoneWeight = (float)Cluster->GetControlPointWeights()[j];
+
+					switch (k)
+					{
+					case 0:
+						Vertices[Name][Index].BoneWeights.x = BoneWeight;
+						break;
+					case 1:
+						Vertices[Name][Index].BoneWeights.y = BoneWeight;
+						break;
+					case 2:
+						Vertices[Name][Index].BoneWeights.z = BoneWeight;
+						break;
+					case 3:
+						Vertices[Name][Index].BoneWeights.w = BoneWeight;
+						break;
+					}
+
+					break;
+				}
+			}
+		}
+
+		FbxAMatrix TransformMatrix;
+		Cluster->GetTransformMatrix(TransformMatrix);
+		FbxAMatrix TransformLinkMatrix;
+		Cluster->GetTransformLinkMatrix(TransformLinkMatrix);
+		FbxAMatrix BoneOffsetMatrix = TransformLinkMatrix.Inverse() * TransformMatrix * GeometryTransform;
+
+		XMFLOAT4X4 BoneOffset;
+		for (int i = 0; i < 4; ++i)
+		{
+			for (int j = 0; j < 4; ++j)
+			{
+				BoneOffset.m[i][j] = BoneOffsetMatrix.Get(i, j);
+			}
+		}
+		BoneOffsets[Name].push_back(XMLoadFloat4x4(&BoneOffset));
+	}
+
+	FbxTakeInfo* TakeInfo = Scene->GetTakeInfo(AnimStackName);
+	FbxTime Start = TakeInfo->mLocalTimeSpan.GetStart();
+	FbxTime End = TakeInfo->mLocalTimeSpan.GetStop();
+	
+	FbxLongLong DebugStart = Start.GetFrameCount(FbxTime::eFrames24);
+	FbxLongLong DebugEnd = End.GetFrameCount(FbxTime::eFrames24);
+
+	for (FbxLongLong i = Start.GetFrameCount(FbxTime::eFrames24); i <= End.GetFrameCount(FbxTime::eFrames24); i++)
+	{
+		FindAnimation(Scene, Mesh, i, Name);
+	}
 }
 
 std::wstring FbxLoader::ConvertToTextureName(const char* FilePath, const std::string& Name)
@@ -185,7 +277,38 @@ bool FbxLoader::FindMesh(FbxNode* Node, FbxMesh*& OutMesh)
 	return false;
 }
 
-void FbxLoader::ProcessPolygon(FbxMesh* Mesh)
+void FbxLoader::FindAnimation(FbxScene* Scene, FbxMesh* Mesh, const FbxLongLong& Time, const std::string& Name)
+{
+	FbxAnimEvaluator* AnimEvaluator = Scene->GetAnimationEvaluator();
+
+	FbxSkin* Skin = reinterpret_cast<FbxSkin*>(Mesh->GetDeformer(0, FbxDeformer::eSkin));
+	int ClusterCount = Skin->GetClusterCount();
+	for (int i = 0; i < ClusterCount; i++)
+	{
+		FbxCluster* Cluster = Skin->GetCluster(i);
+		FbxNode* Node = Cluster->GetLink();
+
+		FbxTime CurTime;
+		CurTime.SetFrame(Time, FbxTime::eFrames24);
+
+		FbxAMatrix RootGlobalMatrix = Mesh->GetNode()->EvaluateGlobalTransform(CurTime);
+		FbxAMatrix ToRootMatrix = RootGlobalMatrix.Inverse() * Node->EvaluateGlobalTransform(CurTime);
+		
+		XMFLOAT4 Translation = MathHelper::Fbx4ToXM4(ToRootMatrix.GetT());
+		XMFLOAT4 Quaternion = MathHelper::QuatToXM4(ToRootMatrix.GetQ());
+		XMFLOAT4 Scale = MathHelper::Fbx4ToXM4(ToRootMatrix.GetS());
+
+		XMVECTOR TranslationVector = XMLoadFloat4(&Translation);
+		XMVECTOR QuaternionVector = XMLoadFloat4(&Quaternion);
+		XMVECTOR ScaleVector = XMLoadFloat4(&Scale);
+		XMVECTOR Zero = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+
+		XMMATRIX ToRootTransform = XMMatrixAffineTransformation(ScaleVector, Zero, QuaternionVector, TranslationVector);
+		ToRootTransforms[Name].push_back(ToRootTransform);
+	}
+}
+
+void FbxLoader::ProcessPolygon(FbxMesh* Mesh, const std::string& Name)
 {
 	int PolygonCount = Mesh->GetPolygonCount();
 
@@ -200,38 +323,57 @@ void FbxLoader::ProcessPolygon(FbxMesh* Mesh)
 			GetNormal(Mesh, i, j, Vertex.Normal);
 			GetTexCoord(Mesh, i, j, Vertex.TexCoord);
 
-			InsertVertex(Vertex);
+			Vertex.BoneWeights.x = 0.0f;
+			Vertex.BoneWeights.y = 0.0f;
+			Vertex.BoneWeights.z = 0.0f;
+			Vertex.BoneWeights.w = 0.0f;
+
+			Vertex.BoneIndices[0] = 255;
+			Vertex.BoneIndices[1] = 255;
+			Vertex.BoneIndices[2] = 255;
+			Vertex.BoneIndices[3] = 255;
+
+			InsertVertex(Vertex, Name);
 		}
 	}
 }
 
-void FbxLoader::InsertVertex(const Vertex& InVertex)
+void FbxLoader::InsertVertex(const Vertex& InVertex, const std::string& Name)
 {
 	auto Lookup = IndexMap.find(InVertex);
 	if (Lookup != IndexMap.end())
 	{
-		Indices.push_back(Lookup->second);
+		Indices[Name].push_back(Lookup->second);
 	}
 	else
 	{
-		unsigned int Index = (unsigned int)Vertices.size();
+		unsigned int Index = (unsigned int)Vertices[Name].size();
 		IndexMap[InVertex] = Index;
-		Indices.push_back(Index);
-		Vertices.push_back(InVertex);
+		Indices[Name].push_back(Index);
+		Vertices[Name].push_back(InVertex);
 	}
+}
+
+FbxAMatrix FbxLoader::GetGeometryTransformation(FbxNode* Node)
+{
+	const FbxVector4 Translation = Node->GetGeometricTranslation(FbxNode::eSourcePivot);
+	const FbxVector4 Rotation = Node->GetGeometricRotation(FbxNode::eSourcePivot);
+	const FbxVector4 Scaling = Node->GetGeometricScaling(FbxNode::eSourcePivot);
+
+	return FbxAMatrix(Translation, Rotation, Scaling);
 }
 
 void FbxLoader::GetPosition(FbxMesh* Mesh, int Index, XMFLOAT3& Data)
 {
 	const FbxVector4& ControlPoint = Mesh->GetControlPointAt(Index);
-	Data = Fbx4ToXM3(ControlPoint);
+	Data = MathHelper::Fbx4ToXM3(ControlPoint);
 }
 
 void FbxLoader::GetNormal(FbxMesh* Mesh, int PolyIndex, int VertexIndex, XMFLOAT3& Data)
 {
 	FbxVector4 Normal;
 	bool bResult = Mesh->GetPolygonVertexNormal(PolyIndex, VertexIndex, Normal);
-	Data = bResult ? Fbx4ToXM3(Normal) : XMFLOAT3(0.0f, 1.0f, 0.0f);
+	Data = bResult ? MathHelper::Fbx4ToXM3(Normal) : XMFLOAT3(0.0f, 1.0f, 0.0f);
 }
 
 void FbxLoader::GetTexCoord(FbxMesh* Mesh, int PolyIndex, int VertexIndex, XMFLOAT2& Data)
@@ -248,46 +390,56 @@ void FbxLoader::GetTexCoord(FbxMesh* Mesh, int PolyIndex, int VertexIndex, XMFLO
 	FbxVector2 TexCoord;
 	bool bUnmapped;
 	bool bResult = Mesh->GetPolygonVertexUV(PolyIndex, VertexIndex, UVNames[0], TexCoord, bUnmapped);
-	Data = (bResult) ? Fbx2ToXM2(TexCoord) : XMFLOAT2(0.0f, 0.0f);
+	Data = (bResult) ? MathHelper::Fbx2ToXM2(TexCoord) : XMFLOAT2(0.0f, 0.0f);
 	Data.y *= -1.0f;
 }
 
-const std::vector<Vertex>& FbxLoader::GetVertices() const
+const std::vector<Vertex>& FbxLoader::GetVertices(const std::string& Name) const
 {
-	return Vertices;
+	return Vertices.at(Name);
 }
 
-const std::vector<uint16_t>& FbxLoader::GetIndices() const
+const std::vector<uint16_t>& FbxLoader::GetIndices(const std::string& Name) const
 {
-	return Indices;
+	return Indices.at(Name);
 }
 
-const std::vector<Texture*> FbxLoader::GetTextures() const
+const std::vector<Texture*> FbxLoader::GetTextures(const std::string& Name) const
 {
 	std::vector<Texture*> TexList;
-	for (int i = 0; i < Textures.size(); i++)
+	for (int i = 0; i < Textures.at(Name).size(); i++)
 	{
-		TexList.push_back(Textures[i].get());
+		TexList.push_back(Textures.at(Name)[i].get());
 	}
 	return TexList;
 }
 
-const std::vector<Material*> FbxLoader::GetMaterials() const
+const std::vector<Material*> FbxLoader::GetMaterials(const std::string& Name) const
 {
 	std::vector<Material*> MatList;
-	for (int i = 0; i < Materials.size(); i++)
+	for (int i = 0; i < Materials.at(Name).size(); i++)
 	{
-		MatList.push_back(Materials[i].get());
+		MatList.push_back(Materials.at(Name)[i].get());
 	}
 	return MatList;
 }
 
-XMFLOAT3 FbxLoader::Fbx4ToXM3(const FbxVector4& Fbx) const
+const std::vector<XMMATRIX>& FbxLoader::GetBoneOffsets(const std::string& Name) const
 {
-	return XMFLOAT3(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]), static_cast<float>(Fbx.mData[2]));
+	return BoneOffsets.at(Name);
 }
 
-XMFLOAT2 FbxLoader::Fbx2ToXM2(const FbxVector2& Fbx) const
+const std::vector<XMMATRIX>& FbxLoader::GetToRootTransforms(const std::string& Name) const
 {
-	return XMFLOAT2(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]));
+	return ToRootTransforms.at(Name);
+}
+
+const int FbxLoader::GetBoneCount(const std::string& Name) const
+{
+	if (BoneCounts.find(Name) != BoneCounts.end())
+	{
+		return BoneCounts.at(Name);
+	}
+
+	return 0;
 }

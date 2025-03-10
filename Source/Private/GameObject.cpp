@@ -16,6 +16,22 @@ void GameObject::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList
 {
 }
 
+void GameObject::BuildRenderItem(int& InstanceOffset, std::vector<std::unique_ptr<FrameResource>>& FrameResources)
+{
+	for (int i = 0; i < FrameResources.size(); i++)
+	{
+		UploadBuffer<AnimationData>* AnimationBuffer = FrameResources[i]->AnimationBuffer.get();
+
+		for (int j = 0; j < Item->Animations.size(); j++)
+		{
+			AnimationData AnimData;
+			AnimData.FinalTransform = Item->Animations[j].FinalTransform;
+
+			AnimationBuffer->CopyData(j, AnimData);
+		}
+	}
+}
+
 void GameObject::BuildPSO(ID3D12Device* Device, const DXGI_FORMAT& BackBufferFormat, const DXGI_FORMAT& DepthStencilFormat, bool b4xMsaaState, UINT QualityOf4xMsaa)
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC OpaquePSODesc;
@@ -75,12 +91,12 @@ void GameObject::UpdateInstanceData(FrameResource* CurFrameResource)
 
 		if (LocalSpaceFrustum.Contains(Item->Bounds) != DirectX::DISJOINT)
 		{
-			InstanceData Data;
-			XMStoreFloat4x4(&Data.World, XMMatrixTranspose(World));
-			XMStoreFloat4x4(&Data.TexTransform, XMMatrixTranspose(TexTransform));
-			Data.MaterialIndex = Item->Instances[i].MaterialIndex;
+			InstanceData InstData;
+			XMStoreFloat4x4(&InstData.World, XMMatrixTranspose(World));
+			XMStoreFloat4x4(&InstData.TexTransform, XMMatrixTranspose(TexTransform));
+			InstData.MaterialIndex = Item->Instances[i].MaterialIndex;
 
-			CurInstanceBuffer->CopyData(Item->InstanceOffset + VisibleInstanceCount, Data);
+			CurInstanceBuffer->CopyData(Item->InstanceOffset + VisibleInstanceCount, InstData);
 			++VisibleInstanceCount;
 		}
 	}
@@ -164,4 +180,9 @@ std::string GameObject::GetName() const
 Texture* GameObject::GetTexture() const
 {
 	return Tex.get();
+}
+
+bool GameObject::UseAnimation() const
+{
+	return bUseAnimation;
 }

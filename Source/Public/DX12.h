@@ -10,6 +10,7 @@ using namespace DirectX::PackedVector;
 
 class GameObject;
 class Camera;
+class AnimationTextureGenerator;
 
 enum class RenderLayer : int
 {
@@ -70,7 +71,7 @@ private:
 private:
 	ComPtr<IDXGIFactory4> DXGIFactory;
 	ComPtr<IDXGISwapChain> SwapChain;
-	ComPtr<ID3D12Device6> D3DDevice;
+	ComPtr<ID3D12Device> D3DDevice;
 
 	ComPtr<ID3D12Fence> Fence;
 	UINT64 CurrentFence = 0;

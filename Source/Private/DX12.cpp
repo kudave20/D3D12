@@ -5,6 +5,7 @@
 #include "FrameResource.h"
 #include "Framework/GameTimer.h"
 #include "Framework/Camera.h"
+#include "FbxLoader.h"
 
 const int gNumFrameResources = 3;
 
@@ -78,7 +79,9 @@ bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InGameObjects)
 		GameObjects.push_back(GameObject);
 	}
 
-	int ObjectIndex = 0;
+	BuildFrameResources();
+
+	int InstanceOffset = 0;
 	for (GameObject* GameObject : GameObjects)
 	{
 		if (GameObject)
@@ -86,13 +89,11 @@ bool DX12::Init(Camera* InCamera, std::vector<GameObject*> InGameObjects)
 			GameObject->BuildGameObject(D3DDevice.Get(), CommandList.Get());
 			GameObject->BuildRootSignature(D3DDevice.Get());
 			GameObject->BuildShadersAndInputLayout();
-			GameObject->BuildRenderItem(ObjectIndex);
+			GameObject->BuildRenderItem(InstanceOffset, FrameResources);
 			GameObject->BuildPSO(D3DDevice.Get(), BackBufferFormat, DepthStencilFormat, b4xMsaaState, QualityOf4xMsaa);
-			++ObjectIndex;
 		}
 	}
 
-	BuildFrameResources();
 	BuildDescriptorHeaps();
 
 	ThrowIfFailed(CommandList->Close());
@@ -463,8 +464,9 @@ void DX12::BuildFrameResources()
 			std::make_unique<FrameResource>(
 				D3DDevice.Get(),
 				1,
-				20,
-				2)
+				26,
+				2,
+				100000)
 		);
 	}
 }
@@ -558,13 +560,25 @@ void DX12::DrawItems()
 			Tex.Offset(Item->Mat->DiffuseSrvHeapIndex, CBVSRVDescriptorSize);
 
 			ID3D12Resource* InstanceBuffer = CurFrameResource->InstanceBuffer->Resource();
+			ID3D12Resource* AnimationBuffer = CurFrameResource->AnimationBuffer->Resource();
 
-			CommandList->SetGraphicsRootShaderResourceView(0, InstanceBuffer->GetGPUVirtualAddress());
-			CommandList->SetGraphicsRootShaderResourceView(1, MatBuffer->GetGPUVirtualAddress());
-			CommandList->SetGraphicsRootConstantBufferView(2, PassCB->GetGPUVirtualAddress());
-			CommandList->SetGraphicsRootDescriptorTable(3, SRVHeap->GetGPUDescriptorHandleForHeapStart());
+			if (GameObject->UseAnimation())
+			{
+				CommandList->SetGraphicsRootShaderResourceView(0, InstanceBuffer->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootShaderResourceView(1, MatBuffer->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootShaderResourceView(2, AnimationBuffer->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootConstantBufferView(3, PassCB->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootDescriptorTable(4, SRVHeap->GetGPUDescriptorHandleForHeapStart());
+			}
+			else
+			{
+				CommandList->SetGraphicsRootShaderResourceView(0, InstanceBuffer->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootShaderResourceView(1, MatBuffer->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootConstantBufferView(2, PassCB->GetGPUVirtualAddress());
+				CommandList->SetGraphicsRootDescriptorTable(3, SRVHeap->GetGPUDescriptorHandleForHeapStart());
+			}
 
-			CommandList->DrawIndexedInstanced(Item->IndexCount, Item->InstanceCount, Item->StartIndexLocation, Item->BaseVertexLocation, Item->InstanceOffset);
+			CommandList->DrawIndexedInstanced(Item->IndexCount, Item->InstanceCount + Item->InstanceOffset, Item->StartIndexLocation, Item->BaseVertexLocation, Item->InstanceOffset);
 		}
 	}
 }
@@ -650,6 +664,10 @@ void DX12::UpdateMainPassConstantBuffer()
 	MainPassCB.FarZ = 1000.0f;
 	MainPassCB.TotalTime = GameTimer::Get()->TotalTime();
 	MainPassCB.DeltaTime = GameTimer::Get()->DeltaTime();
+	// FIXME: 이 하드코딩은 뭘까..
+	MainPassCB.Frame = float(WindowManager::Get()->GetElapsedFrame() / 6 % 13);
+	// FIXME: 이 하드코딩은 또 뭘까..
+	MainPassCB.BoneCount = float(FbxLoader::Get()->GetBoneCount("Dummy"));
 	MainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
 	MainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
 	MainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };

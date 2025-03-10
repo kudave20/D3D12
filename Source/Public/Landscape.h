@@ -12,7 +12,7 @@ public:
 	virtual void BuildRootSignature(ID3D12Device* Device) override;
 	virtual void BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList) override;
 	virtual void BuildShadersAndInputLayout() override;
-	virtual void BuildRenderItem(int ObjectIndex) override;
+	virtual void BuildRenderItem(int& InstanceOffset, std::vector<std::unique_ptr<FrameResource>>& FrameResources) override;
 
 private:
 	float GetFloorHeight(float X, float Z);

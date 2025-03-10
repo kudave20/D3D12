@@ -54,6 +54,10 @@ cbuffer cbPass : register(b0)
     float gFarZ;
     float gTotalTime;
     float gDeltaTime;
+    float gFrame;
+    float gPad0;
+    float gPad1;
+    float gPad2;
     float4 gAmbientLight;
     
     Light gLights[MaxLights];

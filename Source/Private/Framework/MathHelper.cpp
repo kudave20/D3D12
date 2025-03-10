@@ -80,3 +80,23 @@ XMVECTOR MathHelper::RandHemisphereUnitVec3(XMVECTOR n)
 		return XMVector3Normalize(v);
 	}
 }
+
+XMFLOAT4 MathHelper::Fbx4ToXM4(const fbxsdk::FbxVector4& Fbx)
+{
+	return XMFLOAT4(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]), static_cast<float>(Fbx.mData[2]), static_cast<float>(Fbx.mData[3]));
+}
+
+XMFLOAT3 MathHelper::Fbx4ToXM3(const fbxsdk::FbxVector4& Fbx)
+{
+	return XMFLOAT3(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]), static_cast<float>(Fbx.mData[2]));
+}
+
+XMFLOAT2 MathHelper::Fbx2ToXM2(const fbxsdk::FbxVector2& Fbx)
+{
+	return XMFLOAT2(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]));
+}
+
+DirectX::XMFLOAT4 MathHelper::QuatToXM4(const fbxsdk::FbxQuaternion& Fbx)
+{
+	return XMFLOAT4(static_cast<float>(Fbx.mData[0]), static_cast<float>(Fbx.mData[1]), static_cast<float>(Fbx.mData[2]), static_cast<float>(Fbx.mData[3]));
+}

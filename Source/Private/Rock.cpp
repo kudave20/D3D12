@@ -5,6 +5,7 @@ Rock::Rock(Camera* InCamera)
 	:
 	GameObject(InCamera)
 {
+	bUseAnimation = false;
 }
 
 Rock::~Rock()
@@ -47,16 +48,16 @@ void Rock::BuildRootSignature(ID3D12Device* Device)
 
 void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* CommandList)
 {
-	FbxLoader::Get()->Load("Models/Rock.fbx");
+	FbxLoader::Get()->Load("Models/Rock.fbx", "Rock");
 
-	std::vector<Texture*> Textures = FbxLoader::Get()->GetTextures();
+	std::vector<Texture*> Textures = FbxLoader::Get()->GetTextures("Rock");
 
 	// FIXME: 텍스쳐 여러개 받자
 	Tex = std::make_unique<Texture>(*Textures[0]);
 
 	ThrowIfFailed(CreateDDSTextureFromFile12(Device, CommandList, Tex->Filename.c_str(), Tex->Resource, Tex->UploadHeap));
 
-	std::vector<Material*> Materials = FbxLoader::Get()->GetMaterials();
+	std::vector<Material*> Materials = FbxLoader::Get()->GetMaterials("Rock");
 
 	// FIXME: 머티리얼 여러개 받을 수 있게 해야하지 않나?
 	Mat = std::make_unique<Material>(*Materials[0]);
@@ -67,10 +68,10 @@ void Rock::BuildGameObject(ID3D12Device* Device, ID3D12GraphicsCommandList* Comm
 	XMVECTOR Min = XMLoadFloat3(&Minf3);
 	XMVECTOR Max = XMLoadFloat3(&Maxf3);
 
-	const std::vector<Vertex>& Vertices = FbxLoader::Get()->GetVertices();
+	const std::vector<Vertex>& Vertices = FbxLoader::Get()->GetVertices("Rock");
 	const UINT VBByteSize = (UINT)Vertices.size() * sizeof(Vertex);
 
-	const std::vector<uint16_t>& Indices = FbxLoader::Get()->GetIndices();
+	const std::vector<uint16_t>& Indices = FbxLoader::Get()->GetIndices("Rock");
 	const UINT IBByteSize = (UINT)Indices.size() * sizeof(uint16_t);
 
 	for (size_t i = 0; i < Vertices.size(); ++i)
@@ -128,7 +129,7 @@ void Rock::BuildShadersAndInputLayout()
 	};
 }
 
-void Rock::BuildRenderItem(int ObjectIndex)
+void Rock::BuildRenderItem(int& InstanceOffset, std::vector<std::unique_ptr<FrameResource>>& FrameResources)
 {
 	std::unique_ptr<RenderItem> RItem = std::make_unique<RenderItem>();
 	RItem->TexTransform = MathHelper::Identity4x4();
@@ -136,7 +137,7 @@ void Rock::BuildRenderItem(int ObjectIndex)
 	RItem->Geo = Geometry.get();
 	RItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	RItem->InstanceCount = 0;
-	RItem->InstanceOffset = ObjectIndex;
+	RItem->InstanceOffset = InstanceOffset;
 	RItem->IndexCount = RItem->Geo->DrawArgs["Rock"].IndexCount;
 	RItem->StartIndexLocation = RItem->Geo->DrawArgs["Rock"].StartIndexLocation;
 	RItem->BaseVertexLocation = RItem->Geo->DrawArgs["Rock"].BaseVertexLocation;
@@ -161,9 +162,9 @@ void Rock::BuildRenderItem(int ObjectIndex)
 			int Index = N * i + j;
 
 			RItem->Instances[Index].World = XMFLOAT4X4(
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
+				ScaleX, 0.0f, 0.0f, 0.0f,
+				0.0f, ScaleY, 0.0f, 0.0f,
+				0.0f, 0.0f, ScaleZ, 0.0f,
 				X + i * Dx, 0.0f, Z + j * Dz, 1.0f);
 
 			XMStoreFloat4x4(&RItem->Instances[Index].TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
@@ -174,6 +175,11 @@ void Rock::BuildRenderItem(int ObjectIndex)
 	RenderItemLayer[(int)RenderLayer::Opaque] = RItem.get();
 
 	Item = std::move(RItem);
+
+	InstanceOffset += InstanceCount;
+
+	// 순서 바꾸면 안됨
+	GameObject::BuildRenderItem(InstanceOffset, FrameResources);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Rock::GetStaticSamplers()

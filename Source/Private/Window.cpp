@@ -83,10 +83,10 @@ void WindowManager::OnPointerUp(HWND HWnd, WPARAM State, int X, int Y)
 
 void WindowManager::CalculateFrameStats()
 {
-	static int FrameCount = 0;
 	static float ElapsedTime = 0.0f;
 
 	FrameCount++;
+	ElapsedFrame++;
 
 	if ((GameTimer::Get()->TotalTime() - ElapsedTime) >= 1.0f)
 	{
@@ -203,6 +203,11 @@ bool WindowManager::GetResizingByHWND(HWND HWnd) const
 	}
 
 	return nullptr;
+}
+
+int WindowManager::GetElapsedFrame() const
+{
+	return ElapsedFrame;
 }
 
 Window* WindowManager::GetWindowByHWND(const HWND& HWnd) const

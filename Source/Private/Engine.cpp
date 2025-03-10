@@ -6,6 +6,7 @@
 #include "DX12.h"
 #include "Landscape.h"
 #include "Rock.h"
+#include "Dummy.h"
 #include <cassert>
 #include <windowsx.h>
 
@@ -176,12 +177,16 @@ bool Engine::InitWindow()
 
 void Engine::InitGameObjects()
 {
-	std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>(MainCamera.get());
-	GameObjects.push_back(std::move(LandScapeGO));
+	/*std::unique_ptr<Landscape> LandScapeGO = std::make_unique<Landscape>(MainCamera.get());
+	GameObjects.push_back(std::move(LandScapeGO));*/
 
-	std::unique_ptr<Rock> RockGO = std::make_unique<Rock>(MainCamera.get());
-	RockGO->Scale(3.0f, 3.0f, 3.0f);
-	GameObjects.push_back(std::move(RockGO));
+	/*std::unique_ptr<Rock> RockGO = std::make_unique<Rock>(MainCamera.get());
+	RockGO->Scale(2.0f, 2.0f, 2.0f);
+	GameObjects.push_back(std::move(RockGO));*/
+
+	std::unique_ptr<Dummy> DummyGO = std::make_unique<Dummy>(MainCamera.get());
+	DummyGO->Scale(0.1f, 0.1f, 0.1f);
+	GameObjects.push_back(std::move(DummyGO));
 }
 
 bool Engine::InitGraphics()

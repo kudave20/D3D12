@@ -110,6 +110,8 @@ public:
 	bool GetMaximizedByHWND(HWND HWnd) const;
 	bool GetResizingByHWND(HWND HWnd) const;
 
+	int GetElapsedFrame() const;
+
 private:
 	Window* GetWindowByHWND(const HWND& HWnd) const;
 
@@ -120,6 +122,9 @@ private:
 	std::vector<std::unique_ptr<Window>> Windows;
 
 	DX12* Graphics = nullptr;
+
+	int FrameCount = 0;
+	int ElapsedFrame = 0;
 
 	const int WindowsCount = 1;
 

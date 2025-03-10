@@ -175,6 +175,12 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <FxCompile Include="Source\Shader\Dummy.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+    </FxCompile>
     <FxCompile Include="Source\Shader\Landscape.hlsl" />
     <FxCompile Include="Source\Shader\Rock.hlsl">
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">5.1</ShaderModel>
@@ -184,6 +190,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Private\Dummy.cpp" />
     <ClCompile Include="Source\Private\DX12.cpp" />
     <ClCompile Include="Source\Private\FbxLoader.cpp" />
     <ClCompile Include="Source\Private\FrameResource.cpp" />
@@ -202,6 +209,7 @@
     <ClCompile Include="Source\Private\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Public\Dummy.h" />
     <ClInclude Include="Source\Public\DX12.h" />
     <ClInclude Include="Source\Public\Engine.h" />
     <ClInclude Include="Source\Public\FbxLoader.h" />
